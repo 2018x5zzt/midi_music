@@ -1,7 +1,4 @@
-import 'dart:io';
-import 'package:flutter/services.dart';
 import 'package:flutter_midi_pro/flutter_midi_pro.dart';
-import 'package:path_provider/path_provider.dart';
 
 /// SoundFont 引擎封装
 ///
@@ -16,35 +13,22 @@ class MidiEngine {
 
   /// 从 assets 加载 SoundFont 文件
   Future<void> loadSoundfontFromAsset(String assetPath) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final fileName = assetPath.split('/').last;
-    final file = File('${dir.path}/$fileName');
-
-    // 如果本地不存在则从 assets 复制
-    if (!await file.exists()) {
-      final data = await rootBundle.load(assetPath);
-      await file.writeAsBytes(
-        data.buffer.asUint8List(),
-        flush: true,
-      );
-    }
-
-    _soundfontId = await _midiPro.loadSoundfont(
-      path: file.path,
+    _soundfontId = await _midiPro.loadSoundfontAsset(
+      assetPath: assetPath,
       bank: 0,
       program: 0,
     );
-    _isReady = _soundfontId != null;
+    _isReady = true;
   }
 
   /// 从文件路径加载 SoundFont
   Future<void> loadSoundfontFromFile(String filePath) async {
-    _soundfontId = await _midiPro.loadSoundfont(
-      path: filePath,
+    _soundfontId = await _midiPro.loadSoundfontFile(
+      filePath: filePath,
       bank: 0,
       program: 0,
     );
-    _isReady = _soundfontId != null;
+    _isReady = true;
   }
 
   /// 切换指定通道的乐器
@@ -54,7 +38,7 @@ class MidiEngine {
     int bank = 0,
   }) async {
     if (_soundfontId == null) return;
-    await _midiPro.loadInstrument(
+    await _midiPro.selectInstrument(
       sfId: _soundfontId!,
       channel: channel,
       bank: bank,
@@ -90,15 +74,17 @@ class MidiEngine {
 
   /// 停止所有音符
   void allNotesOff() {
-    if (!_isReady) return;
-    for (int ch = 0; ch < 16; ch++) {
-      _midiPro.allNotesOff(channel: ch);
-    }
+    if (!_isReady || _soundfontId == null) return;
+    _midiPro.stopAllNotes(sfId: _soundfontId!);
   }
 
   /// 释放资源
   Future<void> dispose() async {
     allNotesOff();
+    if (_soundfontId != null) {
+      await _midiPro.unloadSoundfont(_soundfontId!);
+    }
+    await _midiPro.dispose();
     _isReady = false;
     _soundfontId = null;
   }

@@ -145,12 +145,12 @@ class MidiFileParser {
             absoluteTick, pendingNotes, notes, events);
       } else if (event is midi.ProgramChangeMidiEvent) {
         channels.add(event.channel);
-        programByChannel[event.channel] = event.program;
+        programByChannel[event.channel] = event.programNumber;
         events.add(TimelineEvent(
           type: MidiEventType.programChange,
           tick: absoluteTick,
           channel: event.channel,
-          data1: event.program,
+          data1: event.programNumber,
         ));
       } else if (event is midi.ControllerEvent) {
         channels.add(event.channel);
@@ -167,7 +167,7 @@ class MidiFileParser {
           type: MidiEventType.pitchBend,
           tick: absoluteTick,
           channel: event.channel,
-          data1: event.bend,
+          data1: event.value,
         ));
       } else if (event is midi.TrackNameEvent) {
         trackName = event.text;

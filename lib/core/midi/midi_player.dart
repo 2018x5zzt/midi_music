@@ -125,6 +125,14 @@ class MidiPlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 设置轨道音量 (0.0 - 1.0)
+  void setTrackVolume(int trackIndex, double volume) {
+    if (_songData == null) return;
+    if (trackIndex >= _songData!.tracks.length) return;
+    _songData!.tracks[trackIndex].volume = volume.clamp(0.0, 1.0);
+    notifyListeners();
+  }
+
   /// 切换轨道静音
   void toggleTrackMute(int trackIndex) {
     if (_songData == null) return;
@@ -180,10 +188,12 @@ class MidiPlayerController extends ChangeNotifier {
 
     switch (event.type) {
       case MidiEventType.noteOn:
+        final vol = _getChannelVolume(event.channel);
+        final adjustedVelocity = (event.data2 * vol).round().clamp(0, 127);
         _engine.noteOn(
           channel: event.channel,
           note: event.data1,
-          velocity: event.data2,
+          velocity: adjustedVelocity,
         );
       case MidiEventType.noteOff:
         _engine.noteOff(
@@ -209,6 +219,17 @@ class MidiPlayerController extends ChangeNotifier {
       }
     }
     return false;
+  }
+
+  /// 获取通道所属轨道的音量 (0.0 - 1.0)
+  double _getChannelVolume(int channel) {
+    if (_songData == null || channel < 0) return 1.0;
+    for (final track in _songData!.tracks) {
+      if (track.channels.contains(channel)) {
+        return track.volume;
+      }
+    }
+    return 1.0;
   }
 
   /// seek 后更新事件索引（二分查找）

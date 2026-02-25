@@ -15,7 +15,7 @@ class PlayerPage extends StatelessWidget {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Consumer<MidiPlayerController>(
-          builder: (_, player, __) => Text(
+          builder: (_, player, _) => Text(
             player.songData?.fileName ?? 'MIDI 播放器',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -45,6 +45,18 @@ class _PlayerBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // SoundFont 未加载提示
+        if (!player.engine.isReady)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: CupertinoColors.systemYellow.withValues(alpha: 0.2),
+            child: const Text(
+              '⚠ SoundFont 未加载，请将 .sf2 文件放入 assets/soundfonts/',
+              style: TextStyle(fontSize: 13, color: CupertinoColors.systemOrange),
+              textAlign: TextAlign.center,
+            ),
+          ),
         const SizedBox(height: 24),
         // 歌曲信息
         _SongInfoSection(player: player),
@@ -266,6 +278,7 @@ class _TrackList extends StatelessWidget {
         return _TrackTile(
           track: track,
           onToggleMute: () => player.toggleTrackMute(track.index),
+          onVolumeChanged: (v) => player.setTrackVolume(track.index, v),
         );
       },
     );
@@ -276,61 +289,89 @@ class _TrackList extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   final MidiTrackInfo track;
   final VoidCallback onToggleMute;
+  final ValueChanged<double> onVolumeChanged;
 
   const _TrackTile({
     required this.track,
     required this.onToggleMute,
+    required this.onVolumeChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = track.name.isNotEmpty ? track.name : '轨道 ${track.index + 1}';
+    final name = track.name.isNotEmpty
+        ? track.name
+        : '轨道 ${track.index + 1}';
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: CupertinoColors.systemBackground,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
+      child: Column(
         children: [
-          // 静音按钮
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minSize: 32,
-            onPressed: onToggleMute,
-            child: Icon(
-              track.isMuted
-                  ? CupertinoIcons.speaker_slash_fill
-                  : CupertinoIcons.speaker_2_fill,
-              size: 20,
-              color: track.isMuted
-                  ? CupertinoColors.systemGrey
-                  : CupertinoColors.systemBlue,
-            ),
-          ),
-          const SizedBox(width: 12),
-          // 轨道名称
-          Expanded(
-            child: Text(
-              name,
-              style: TextStyle(
-                fontSize: 15,
-                color: track.isMuted
-                    ? CupertinoColors.secondaryLabel
-                    : CupertinoColors.label,
+          // 第一行：静音 + 名称 + 音符数
+          Row(
+            children: [
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(32, 32),
+                onPressed: onToggleMute,
+                child: Icon(
+                  track.isMuted
+                      ? CupertinoIcons.speaker_slash_fill
+                      : CupertinoIcons.speaker_2_fill,
+                  size: 20,
+                  color: track.isMuted
+                      ? CupertinoColors.systemGrey
+                      : CupertinoColors.systemBlue,
+                ),
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: track.isMuted
+                        ? CupertinoColors.secondaryLabel
+                        : CupertinoColors.label,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '${track.noteCount} 音符',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: CupertinoColors.tertiaryLabel,
+                ),
+              ),
+            ],
           ),
-          // 音符数量
-          Text(
-            '${track.noteCount} 音符',
-            style: const TextStyle(
-              fontSize: 12,
-              color: CupertinoColors.tertiaryLabel,
-            ),
+          // 第二行：音量滑块
+          Row(
+            children: [
+              const SizedBox(width: 40),
+              const Icon(
+                CupertinoIcons.volume_down,
+                size: 14,
+                color: CupertinoColors.tertiaryLabel,
+              ),
+              Expanded(
+                child: CupertinoSlider(
+                  value: track.isMuted ? 0.0 : track.volume,
+                  onChanged: track.isMuted ? null : onVolumeChanged,
+                ),
+              ),
+              const Icon(
+                CupertinoIcons.volume_up,
+                size: 14,
+                color: CupertinoColors.tertiaryLabel,
+              ),
+            ],
           ),
         ],
       ),
