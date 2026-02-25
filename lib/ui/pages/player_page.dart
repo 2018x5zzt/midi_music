@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/midi/midi_player.dart';
+import '../../models/midi_track.dart';
 
 /// 播放器页面 - MIDI 播放控制
 ///
@@ -273,7 +274,7 @@ class _TrackList extends StatelessWidget {
 
 /// 单个轨道行
 class _TrackTile extends StatelessWidget {
-  final dynamic track;
+  final MidiTrackInfo track;
   final VoidCallback onToggleMute;
 
   const _TrackTile({
