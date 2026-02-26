@@ -1,6 +1,10 @@
 import 'package:flutter/cupertino.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/follow/follow_mode_controller.dart';
+import '../../core/follow/microphone_input.dart';
+import '../../core/follow/onset_detector.dart';
 import '../../core/midi/midi_player.dart';
 import '../../models/midi_track.dart';
 
@@ -36,13 +40,146 @@ class PlayerPage extends StatelessWidget {
   }
 }
 
-/// 播放器主体内容
-class _PlayerBody extends StatelessWidget {
+/// 播放器主体内容（StatefulWidget，管理跟随模式生命周期）
+class _PlayerBody extends StatefulWidget {
   final MidiPlayerController player;
   const _PlayerBody({required this.player});
 
   @override
+  State<_PlayerBody> createState() => _PlayerBodyState();
+}
+
+class _PlayerBodyState extends State<_PlayerBody> {
+  // 跟随模式相关
+  MicrophoneInput? _micInput;
+  OnsetDetector? _onsetDetector;
+  FollowModeController? _followController;
+  bool _isFollowMode = false;
+  FollowModeState _followState = FollowModeState.idle;
+  double _followSpeedFactor = 1.0;
+  int? _melodyTrackIndex;
+
+  @override
+  void dispose() {
+    _stopFollowMode();
+    _followController?.dispose();
+    _onsetDetector?.dispose();
+    _micInput?.dispose();
+    super.dispose();
+  }
+
+  /// 设置主旋律轨道
+  void _setMelodyTrack(int trackIndex) {
+    setState(() => _melodyTrackIndex = trackIndex);
+  }
+
+  /// 切换跟随模式
+  Future<void> _toggleFollowMode() async {
+    if (_isFollowMode) {
+      _stopFollowMode();
+      setState(() => _isFollowMode = false);
+      return;
+    }
+
+    // 检查是否选择了主旋律轨道
+    if (_melodyTrackIndex == null) {
+      _showAlert('请先选择主旋律轨道', '在轨道列表中点击"主旋律"按钮选择一个轨道。');
+      return;
+    }
+
+    // 请求麦克风权限
+    final granted = await _requestMicPermission();
+    if (!granted) return;
+
+    // 启动跟随模式
+    _startFollowMode();
+    setState(() => _isFollowMode = true);
+  }
+
+  /// 请求麦克风权限
+  Future<bool> _requestMicPermission() async {
+    var status = await Permission.microphone.status;
+    if (status.isGranted) return true;
+
+    status = await Permission.microphone.request();
+    if (status.isGranted) return true;
+
+    if (mounted) {
+      _showAlert('需要麦克风权限', '跟随模式需要使用麦克风检测您的演奏。请在系统设置中允许麦克风访问。');
+    }
+    return false;
+  }
+
+  /// 启动跟随模式
+  void _startFollowMode() {
+    final player = widget.player;
+    final song = player.songData;
+    if (song == null || _melodyTrackIndex == null) return;
+
+    // 获取主旋律轨道的音符
+    final melodyTrack = song.tracks.firstWhere(
+      (t) => t.index == _melodyTrackIndex,
+      orElse: () => song.tracks.first,
+    );
+
+    // 初始化三层模块
+    _micInput = MicrophoneInput();
+    _onsetDetector = OnsetDetector();
+    _followController = FollowModeController(
+      onsetDetector: _onsetDetector!,
+    );
+
+    // 设置回调
+    _followController!.onSpeedChanged = (speed) {
+      player.setSpeed(speed);
+      if (mounted) setState(() => _followSpeedFactor = speed);
+    };
+    _followController!.onStateChanged = (state) {
+      if (mounted) setState(() => _followState = state);
+    };
+
+    // 加载乐谱 → 连接流 → 启动
+    _followController!.loadScore(melodyTrack.notes);
+    _onsetDetector!.attachPitchStream(_micInput!.pitchStream);
+    _micInput!.start();
+    _followController!.start();
+  }
+
+  /// 停止跟随模式
+  void _stopFollowMode() {
+    _followController?.stop();
+    _onsetDetector?.detach();
+    _micInput?.stop();
+
+    // 恢复手动速度
+    widget.player.setSpeed(1.0);
+    setState(() {
+      _followState = FollowModeState.idle;
+      _followSpeedFactor = 1.0;
+    });
+  }
+
+  /// 显示提示弹窗
+  void _showAlert(String title, String message) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('好的'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final player = widget.player;
     return Column(
       children: [
         // SoundFont 未加载提示
@@ -58,20 +195,36 @@ class _PlayerBody extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 24),
-        // 歌曲信息
         _SongInfoSection(player: player),
         const SizedBox(height: 32),
-        // 进度条
         _ProgressSection(player: player),
         const SizedBox(height: 24),
-        // 播放控制按钮
         _PlaybackControls(player: player),
         const SizedBox(height: 24),
-        // 速度调节
-        _SpeedControl(player: player),
-        const SizedBox(height: 16),
+        // 跟随模式 / 手动速度调节
+        _isFollowMode
+            ? _FollowModeStatus(
+                state: _followState,
+                speedFactor: _followSpeedFactor,
+                onStop: _toggleFollowMode,
+              )
+            : _SpeedControl(player: player),
+        const SizedBox(height: 8),
+        // 跟随模式开关
+        _FollowModeToggle(
+          isFollowMode: _isFollowMode,
+          melodyTrackIndex: _melodyTrackIndex,
+          onToggle: _toggleFollowMode,
+        ),
+        const SizedBox(height: 8),
         // 轨道列表
-        Expanded(child: _TrackList(player: player)),
+        Expanded(
+          child: _TrackList(
+            player: player,
+            melodyTrackIndex: _melodyTrackIndex,
+            onSetMelody: _setMelodyTrack,
+          ),
+        ),
       ],
     );
   }
@@ -219,6 +372,112 @@ class _PlaybackControls extends StatelessWidget {
   }
 }
 
+/// 跟随模式状态显示
+class _FollowModeStatus extends StatelessWidget {
+  final FollowModeState state;
+  final double speedFactor;
+  final VoidCallback onStop;
+
+  const _FollowModeStatus({
+    required this.state,
+    required this.speedFactor,
+    required this.onStop,
+  });
+
+  String get _stateLabel => switch (state) {
+        FollowModeState.idle => '空闲',
+        FollowModeState.following => '跟随中',
+        FollowModeState.waitingForOnset => '等待演奏…',
+      };
+
+  Color get _stateColor => switch (state) {
+        FollowModeState.idle => CupertinoColors.systemGrey,
+        FollowModeState.following => CupertinoColors.systemGreen,
+        FollowModeState.waitingForOnset => CupertinoColors.systemOrange,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        children: [
+          Icon(CupertinoIcons.mic_fill, size: 18, color: _stateColor),
+          const SizedBox(width: 8),
+          Text(
+            _stateLabel,
+            style: TextStyle(fontSize: 14, color: _stateColor),
+          ),
+          const Spacer(),
+          Text(
+            '${speedFactor.toStringAsFixed(2)}x',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: CupertinoColors.label,
+            ),
+          ),
+          const SizedBox(width: 12),
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(32, 32),
+            onPressed: onStop,
+            child: const Icon(
+              CupertinoIcons.stop_circle,
+              size: 24,
+              color: CupertinoColors.systemRed,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 跟随模式开关行
+class _FollowModeToggle extends StatelessWidget {
+  final bool isFollowMode;
+  final int? melodyTrackIndex;
+  final VoidCallback onToggle;
+
+  const _FollowModeToggle({
+    required this.isFollowMode,
+    required this.melodyTrackIndex,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        children: [
+          const Icon(
+            CupertinoIcons.waveform,
+            size: 18,
+            color: CupertinoColors.secondaryLabel,
+          ),
+          const SizedBox(width: 8),
+          const Text('跟随模式', style: TextStyle(fontSize: 14)),
+          if (melodyTrackIndex == null && !isFollowMode)
+            const Text(
+              '  (请先选择主旋律)',
+              style: TextStyle(
+                fontSize: 12,
+                color: CupertinoColors.systemOrange,
+              ),
+            ),
+          const Spacer(),
+          CupertinoSwitch(
+            value: isFollowMode,
+            onChanged: (_) => onToggle(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// 速度调节区域
 class _SpeedControl extends StatelessWidget {
   final MidiPlayerController player;
@@ -261,7 +520,14 @@ class _SpeedControl extends StatelessWidget {
 /// 轨道列表区域
 class _TrackList extends StatelessWidget {
   final MidiPlayerController player;
-  const _TrackList({required this.player});
+  final int? melodyTrackIndex;
+  final ValueChanged<int> onSetMelody;
+
+  const _TrackList({
+    required this.player,
+    required this.melodyTrackIndex,
+    required this.onSetMelody,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -277,8 +543,10 @@ class _TrackList extends StatelessWidget {
         final track = tracks[index];
         return _TrackTile(
           track: track,
+          isMelody: track.index == melodyTrackIndex,
           onToggleMute: () => player.toggleTrackMute(track.index),
           onVolumeChanged: (v) => player.setTrackVolume(track.index, v),
+          onSetMelody: () => onSetMelody(track.index),
         );
       },
     );
@@ -288,13 +556,17 @@ class _TrackList extends StatelessWidget {
 /// 单个轨道行
 class _TrackTile extends StatelessWidget {
   final MidiTrackInfo track;
+  final bool isMelody;
   final VoidCallback onToggleMute;
   final ValueChanged<double> onVolumeChanged;
+  final VoidCallback onSetMelody;
 
   const _TrackTile({
     required this.track,
+    required this.isMelody,
     required this.onToggleMute,
     required this.onVolumeChanged,
+    required this.onSetMelody,
   });
 
   @override
@@ -347,6 +619,22 @@ class _TrackTile extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 12,
                   color: CupertinoColors.tertiaryLabel,
+                ),
+              ),
+              const SizedBox(width: 8),
+              // 主旋律标记/按钮
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                minimumSize: const Size(0, 24),
+                onPressed: onSetMelody,
+                child: Text(
+                  isMelody ? '★ 主旋律' : '主旋律',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isMelody
+                        ? CupertinoColors.systemOrange
+                        : CupertinoColors.tertiaryLabel,
+                  ),
                 ),
               ),
             ],
