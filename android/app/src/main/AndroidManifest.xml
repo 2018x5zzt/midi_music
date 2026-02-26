@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 变速跟随模式需要麦克风权限进行 onset detection -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="midi_music"
         android:name="${applicationName}"
