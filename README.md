@@ -4,9 +4,9 @@
 
 ## ✨ 核心功能
 
-- **MIDI 文件播放** — 解析标准 MIDI 文件，按轨道/通道播放，支持播放/暂停/停止/进度控制
+- **MIDI 文件播放** — 解析标准 MIDI 文件（Format 0/1），支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
-- **轨道控制** — 独立控制每个轨道的音量、静音、乐器显示
+- **轨道控制** — 按轨道（而非通道）独立控制音量、静音，即使多轨道共享同一 MIDI 通道也互不干扰
 - **变速跟随模式** — 通过麦克风检测演奏者弹奏节奏（onset detection），实时调整伴奏播放速度
 - **iOS 风格 UI** — 全 Cupertino 组件，简约流畅
 
@@ -44,6 +44,11 @@ lib/
     └── pages/
         ├── home_page.dart             # 首页（文件选择）
         └── player_page.dart           # 播放器页面
+test/
+└── midi_parse_test.dart               # MIDI 解析验证脚本
+assets/
+└── midi/
+    └── Beethoven-Moonlight-Sonata.mid # 测试用 MIDI 文件
 ```
 
 ## 🚀 快速开始
@@ -104,6 +109,24 @@ flutter build apk --release
 2. 打开「跟随模式」开关（首次使用需授权麦克风权限）
 3. 开始演奏，伴奏会自动跟随你的节奏
 4. 关闭开关或点击停止按钮退出跟随模式
+
+## 🔧 技术架构细节
+
+### 多轨道共享 MIDI 通道
+
+许多古典音乐 MIDI 文件（如贝多芬月光奏鸣曲）会将多个轨道（右手、左手）分配到同一个 MIDI 通道（channel 0）。本 App 通过 `trackIndex` 机制解决了这一问题：
+
+- **TimelineEvent** 携带 `trackIndex` 字段标识事件所属轨道
+- **解析器** 在解析每个轨道时自动填入 `trackIndex`
+- **播放器** 按 `trackIndex`（而非 channel）进行静音/音量控制，实现 O(1) 查找
+
+这确保了即使多轨道共享同一通道，用户也能独立控制每个轨道。
+
+### 播放引擎
+
+- 5ms 精度 Timer 驱动事件调度
+- TempoMap 支持多 tempo 变化（如月光奏鸣曲含 61 个 tempo 变化点）
+- 二分查找实现高效 seek 定位
 
 ## 📄 License
 
