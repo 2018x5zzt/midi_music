@@ -88,11 +88,15 @@ class TimelineEvent implements Comparable<TimelineEvent> {
   final int data1;
   final int data2;
 
+  /// 所属轨道索引（用于多轨道共享 channel 时区分控制）
+  final int trackIndex;
+
   TimelineEvent({
     required this.type,
     required this.tick,
     this.time = 0.0,
     this.channel = -1,
+    this.trackIndex = -1,
     this.data1 = 0,
     this.data2 = 0,
   });

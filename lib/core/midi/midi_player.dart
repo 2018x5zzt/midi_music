@@ -140,9 +140,11 @@ class MidiPlayerController extends ChangeNotifier {
     final track = _songData!.tracks[trackIndex];
     track.isMuted = !track.isMuted;
     if (track.isMuted) {
-      // 静音时停止该轨道所有音符
+      // 静音时停止该轨道所有通道上的所有音符
       for (final ch in track.channels) {
-        _engine.noteOff(channel: ch, note: 0);
+        for (int note = 0; note < 128; note++) {
+          _engine.noteOff(channel: ch, note: note);
+        }
       }
     }
     notifyListeners();
@@ -183,12 +185,12 @@ class MidiPlayerController extends ChangeNotifier {
 
   /// 分发单个 MIDI 事件到引擎
   void _dispatchEvent(TimelineEvent event) {
-    // 检查该事件所属轨道是否被静音
-    if (_isChannelMuted(event.channel)) return;
+    // 按 trackIndex 检查静音（支持多轨道共享同一 channel）
+    if (_isTrackMuted(event.trackIndex)) return;
 
     switch (event.type) {
       case MidiEventType.noteOn:
-        final vol = _getChannelVolume(event.channel);
+        final vol = _getTrackVolume(event.trackIndex);
         final adjustedVelocity = (event.data2 * vol).round().clamp(0, 127);
         _engine.noteOn(
           channel: event.channel,
@@ -210,26 +212,18 @@ class MidiPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 检查通道是否被静音
-  bool _isChannelMuted(int channel) {
-    if (_songData == null || channel < 0) return false;
-    for (final track in _songData!.tracks) {
-      if (track.channels.contains(channel) && track.isMuted) {
-        return true;
-      }
-    }
-    return false;
+  /// 检查轨道是否被静音（按 trackIndex 而非 channel）
+  bool _isTrackMuted(int trackIndex) {
+    if (_songData == null || trackIndex < 0) return false;
+    if (trackIndex >= _songData!.tracks.length) return false;
+    return _songData!.tracks[trackIndex].isMuted;
   }
 
-  /// 获取通道所属轨道的音量 (0.0 - 1.0)
-  double _getChannelVolume(int channel) {
-    if (_songData == null || channel < 0) return 1.0;
-    for (final track in _songData!.tracks) {
-      if (track.channels.contains(channel)) {
-        return track.volume;
-      }
-    }
-    return 1.0;
+  /// 获取轨道音量（按 trackIndex 而非 channel）
+  double _getTrackVolume(int trackIndex) {
+    if (_songData == null || trackIndex < 0) return 1.0;
+    if (trackIndex >= _songData!.tracks.length) return 1.0;
+    return _songData!.tracks[trackIndex].volume;
   }
 
   /// seek 后更新事件索引（二分查找）

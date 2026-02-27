@@ -135,14 +135,14 @@ class MidiFileParser {
         if (event.velocity == 0) {
           // NoteOn with velocity=0 等同于 NoteOff
           _handleNoteOff(event.noteNumber, event.channel,
-              absoluteTick, pendingNotes, notes, events);
+              absoluteTick, trackIndex, pendingNotes, notes, events);
         } else {
-          _handleNoteOn(event, absoluteTick, channels,
+          _handleNoteOn(event, absoluteTick, trackIndex, channels,
               pendingNotes, events);
         }
       } else if (event is midi.NoteOffEvent) {
         _handleNoteOff(event.noteNumber, event.channel,
-            absoluteTick, pendingNotes, notes, events);
+            absoluteTick, trackIndex, pendingNotes, notes, events);
       } else if (event is midi.ProgramChangeMidiEvent) {
         channels.add(event.channel);
         programByChannel[event.channel] = event.programNumber;
@@ -150,6 +150,7 @@ class MidiFileParser {
           type: MidiEventType.programChange,
           tick: absoluteTick,
           channel: event.channel,
+          trackIndex: trackIndex,
           data1: event.programNumber,
         ));
       } else if (event is midi.ControllerEvent) {
@@ -158,6 +159,7 @@ class MidiFileParser {
           type: MidiEventType.controlChange,
           tick: absoluteTick,
           channel: event.channel,
+          trackIndex: trackIndex,
           data1: event.controllerType,
           data2: event.value,
         ));
@@ -167,6 +169,7 @@ class MidiFileParser {
           type: MidiEventType.pitchBend,
           tick: absoluteTick,
           channel: event.channel,
+          trackIndex: trackIndex,
           data1: event.value,
         ));
       } else if (event is midi.TrackNameEvent) {
@@ -175,6 +178,7 @@ class MidiFileParser {
         events.add(TimelineEvent(
           type: MidiEventType.endOfTrack,
           tick: absoluteTick,
+          trackIndex: trackIndex,
         ));
       }
     }
@@ -201,6 +205,7 @@ class MidiFileParser {
   void _handleNoteOn(
     midi.NoteOnEvent event,
     int absoluteTick,
+    int trackIndex,
     Set<int> channels,
     Map<String, _PendingNote> pendingNotes,
     List<TimelineEvent> events,
@@ -219,6 +224,7 @@ class MidiFileParser {
       type: MidiEventType.noteOn,
       tick: absoluteTick,
       channel: event.channel,
+      trackIndex: trackIndex,
       data1: event.noteNumber,
       data2: event.velocity,
     ));
@@ -229,6 +235,7 @@ class MidiFileParser {
     int noteNumber,
     int channel,
     int absoluteTick,
+    int trackIndex,
     Map<String, _PendingNote> pendingNotes,
     List<MidiNote> notes,
     List<TimelineEvent> events,
@@ -250,6 +257,7 @@ class MidiFileParser {
       type: MidiEventType.noteOff,
       tick: absoluteTick,
       channel: channel,
+      trackIndex: trackIndex,
       data1: noteNumber,
       data2: 0,
     ));
