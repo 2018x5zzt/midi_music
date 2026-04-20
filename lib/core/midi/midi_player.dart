@@ -1,11 +1,23 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+
 import '../../models/midi_track.dart';
 import 'midi_engine.dart';
 import 'tempo_map.dart';
 
 /// 播放状态
 enum PlaybackState { stopped, playing, paused }
+
+enum SoundfontSetupState { idle, checking, downloading, ready, failed }
+
+const _kDefaultSoundfontFileName = 'TimGM6mb.sf2';
+const _kDefaultSoundfontUrls = [
+  'https://cdn.jsdelivr.net/gh/arbruijn/TimGM6mb@master/TimGM6mb.sf2',
+  'https://raw.githubusercontent.com/arbruijn/TimGM6mb/master/TimGM6mb.sf2',
+  'https://sourceforge.net/projects/mscore/files/soundfont/TimGM6mb.sf2/download',
+];
 
 /// MIDI 播放控制器
 ///
@@ -17,11 +29,14 @@ class MidiPlayerController extends ChangeNotifier {
   TempoMap? _tempoMap;
 
   PlaybackState _state = PlaybackState.stopped;
+  SoundfontSetupState _soundfontState = SoundfontSetupState.idle;
   double _currentTime = 0.0;
   double _playbackSpeed = 1.0;
+  double _soundfontDownloadProgress = 0.0;
   int _currentEventIndex = 0;
   Timer? _ticker;
   DateTime? _lastTickTime;
+  String? _soundfontErrorMessage;
 
   // Getters
   PlaybackState get state => _state;
@@ -33,6 +48,10 @@ class MidiPlayerController extends ChangeNotifier {
   MidiSongData? get songData => _songData;
   MidiEngine get engine => _engine;
   bool get isReady => _engine.isReady && _songData != null;
+  SoundfontSetupState get soundfontState => _soundfontState;
+  double get soundfontDownloadProgress => _soundfontDownloadProgress;
+  String? get soundfontErrorMessage => _soundfontErrorMessage;
+  bool get isSoundfontReady => _engine.isReady;
 
   /// 总时长（秒）
   double get totalDuration => _songData?.totalDuration ?? 0.0;
@@ -53,7 +72,49 @@ class MidiPlayerController extends ChangeNotifier {
   /// 加载 SoundFont
   Future<void> loadSoundfont(String assetPath) async {
     await _engine.loadSoundfontFromAsset(assetPath);
+    _soundfontState = SoundfontSetupState.ready;
+    _soundfontDownloadProgress = 1.0;
+    _soundfontErrorMessage = null;
     notifyListeners();
+  }
+
+  Future<void> ensureSoundfontReady() async {
+    if (_engine.isReady ||
+        _soundfontState == SoundfontSetupState.checking ||
+        _soundfontState == SoundfontSetupState.downloading) {
+      return;
+    }
+
+    _soundfontState = SoundfontSetupState.checking;
+    _soundfontDownloadProgress = 0.0;
+    _soundfontErrorMessage = null;
+    notifyListeners();
+
+    try {
+      final soundfontFile = await _getSoundfontFile();
+      final cachedFileIsUsable =
+          await soundfontFile.exists() && await soundfontFile.length() > 0;
+
+      if (cachedFileIsUsable) {
+        try {
+          await _loadDownloadedSoundfont(soundfontFile);
+          return;
+        } catch (_) {
+          await soundfontFile.delete();
+        }
+      }
+
+      await _downloadSoundfont(soundfontFile);
+      await _loadDownloadedSoundfont(soundfontFile);
+    } catch (e) {
+      _soundfontState = SoundfontSetupState.failed;
+      _soundfontErrorMessage = _describeSoundfontError(e);
+      notifyListeners();
+    }
+  }
+
+  Future<void> retrySoundfontSetup() async {
+    await ensureSoundfontReady();
   }
 
   /// 加载歌曲数据
@@ -261,5 +322,96 @@ class MidiPlayerController extends ChangeNotifier {
     stop();
     _engine.dispose();
     super.dispose();
+  }
+
+  Future<File> _getSoundfontFile() async {
+    final appSupportDirectory = await getApplicationSupportDirectory();
+    final soundfontDirectory =
+        Directory('${appSupportDirectory.path}/soundfonts');
+    await soundfontDirectory.create(recursive: true);
+    return File('${soundfontDirectory.path}/$_kDefaultSoundfontFileName');
+  }
+
+  Future<void> _downloadSoundfont(File targetFile) async {
+    _soundfontState = SoundfontSetupState.downloading;
+    _soundfontDownloadProgress = 0.0;
+    notifyListeners();
+
+    final tempFile = File('${targetFile.path}.download');
+    Object? lastError;
+
+    for (final downloadUrl in _kDefaultSoundfontUrls) {
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+
+      final httpClient = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 20);
+
+      try {
+        final request = await httpClient.getUrl(Uri.parse(downloadUrl));
+        final response = await request.close();
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw HttpException(
+            'SoundFont download failed (${response.statusCode})',
+            uri: Uri.parse(downloadUrl),
+          );
+        }
+
+        final output = tempFile.openWrite();
+        var receivedBytes = 0;
+        final totalBytes = response.contentLength;
+
+        try {
+          await for (final chunk in response) {
+            output.add(chunk);
+            receivedBytes += chunk.length;
+            if (totalBytes > 0) {
+              _soundfontDownloadProgress = receivedBytes / totalBytes;
+              notifyListeners();
+            }
+          }
+        } finally {
+          await output.close();
+        }
+
+        if (await targetFile.exists()) {
+          await targetFile.delete();
+        }
+        await tempFile.rename(targetFile.path);
+        _soundfontDownloadProgress = 1.0;
+        return;
+      } catch (error) {
+        lastError = error;
+      } finally {
+        httpClient.close(force: true);
+      }
+    }
+
+    if (await tempFile.exists()) {
+      await tempFile.delete();
+    }
+    throw lastError ?? const HttpException('SoundFont download failed');
+  }
+
+  Future<void> _loadDownloadedSoundfont(File soundfontFile) async {
+    await _engine.loadSoundfontFromFile(soundfontFile.path);
+    _soundfontState = SoundfontSetupState.ready;
+    _soundfontDownloadProgress = 1.0;
+    _soundfontErrorMessage = null;
+    if (_songData != null) {
+      _setupInstruments();
+    }
+    notifyListeners();
+  }
+
+  String _describeSoundfontError(Object error) {
+    if (error is SocketException) {
+      return '无法连接到音色库下载源，请检查网络。';
+    }
+    if (error is HttpException) {
+      return '音色库下载失败，请稍后重试。';
+    }
+    return '音色库准备失败，请重试。';
   }
 }

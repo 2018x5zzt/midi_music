@@ -13,6 +13,11 @@ class MidiEngine {
 
   /// 从 assets 加载 SoundFont 文件
   Future<void> loadSoundfontFromAsset(String assetPath) async {
+    if (_soundfontId != null) {
+      await _midiPro.unloadSoundfont(_soundfontId!);
+      _soundfontId = null;
+      _isReady = false;
+    }
     _soundfontId = await _midiPro.loadSoundfontAsset(
       assetPath: assetPath,
       bank: 0,
@@ -23,6 +28,11 @@ class MidiEngine {
 
   /// 从文件路径加载 SoundFont
   Future<void> loadSoundfontFromFile(String filePath) async {
+    if (_soundfontId != null) {
+      await _midiPro.unloadSoundfont(_soundfontId!);
+      _soundfontId = null;
+      _isReady = false;
+    }
     _soundfontId = await _midiPro.loadSoundfontFile(
       filePath: filePath,
       bank: 0,
@@ -52,8 +62,9 @@ class MidiEngine {
     required int note,
     required int velocity,
   }) {
-    if (!_isReady) return;
+    if (!_isReady || _soundfontId == null) return;
     _midiPro.playNote(
+      sfId: _soundfontId!,
       channel: channel,
       key: note,
       velocity: velocity,
@@ -65,8 +76,9 @@ class MidiEngine {
     required int channel,
     required int note,
   }) {
-    if (!_isReady) return;
+    if (!_isReady || _soundfontId == null) return;
     _midiPro.stopNote(
+      sfId: _soundfontId!,
       channel: channel,
       key: note,
     );

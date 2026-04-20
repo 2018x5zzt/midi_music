@@ -14,7 +14,6 @@ void main() {
       ),
     );
 
-    // 验证首页渲染成功
-    expect(find.text('MIDI 音乐'), findsOneWidget);
+    expect(find.text('导入 MIDI 乐谱'), findsOneWidget);
   });
 }

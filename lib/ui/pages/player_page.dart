@@ -7,10 +7,8 @@ import '../../core/follow/microphone_input.dart';
 import '../../core/follow/onset_detector.dart';
 import '../../core/midi/midi_player.dart';
 import '../../models/midi_track.dart';
+import '../theme/luxury_theme.dart';
 
-/// 播放器页面 - MIDI 播放控制
-///
-/// iOS 风格：歌曲信息 + 进度条 + 播放控制 + 速度调节 + 轨道列表。
 class PlayerPage extends StatelessWidget {
   const PlayerPage({super.key});
 
@@ -18,31 +16,76 @@ class PlayerPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
+        border: null,
+        previousPageTitle: '乐库',
         middle: Consumer<MidiPlayerController>(
           builder: (_, player, _) => Text(
-            player.songData?.fileName ?? 'MIDI 播放器',
+            player.songData == null
+                ? 'Nocturne Stage'
+                : _displaySongTitle(player.songData!.fileName),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ),
       ),
-      child: SafeArea(
-        child: Consumer<MidiPlayerController>(
-          builder: (context, player, _) {
-            if (!player.isReady && player.songData == null) {
-              return const Center(child: Text('未加载歌曲'));
-            }
-            return _PlayerBody(player: player);
-          },
+      child: LuxuryBackdrop(
+        child: SafeArea(
+          bottom: false,
+          child: Consumer<MidiPlayerController>(
+            builder: (context, player, _) {
+              if (!player.isReady && player.songData == null) {
+                return const _EmptyStage();
+              }
+              return _PlayerBody(player: player);
+            },
+          ),
         ),
       ),
     );
   }
 }
 
-/// 播放器主体内容（StatefulWidget，管理跟随模式生命周期）
+class _EmptyStage extends StatelessWidget {
+  const _EmptyStage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: LuxuryPanel(
+          highlighted: true,
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SectionEyebrow(label: 'NO SCORE LOADED'),
+              const SizedBox(height: 18),
+              Text(
+                '先导入一份 MIDI 乐谱。',
+                style: luxuryDisplayStyle(context, size: 30),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                '播放器已经就位，但当前还没有可演出的曲目。',
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: LuxuryPalette.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PlayerBody extends StatefulWidget {
   final MidiPlayerController player;
+
   const _PlayerBody({required this.player});
 
   @override
@@ -50,7 +93,6 @@ class _PlayerBody extends StatefulWidget {
 }
 
 class _PlayerBodyState extends State<_PlayerBody> {
-  // 跟随模式相关
   MicrophoneInput? _micInput;
   OnsetDetector? _onsetDetector;
   FollowModeController? _followController;
@@ -68,12 +110,10 @@ class _PlayerBodyState extends State<_PlayerBody> {
     super.dispose();
   }
 
-  /// 设置主旋律轨道
   void _setMelodyTrack(int trackIndex) {
     setState(() => _melodyTrackIndex = trackIndex);
   }
 
-  /// 切换跟随模式
   Future<void> _toggleFollowMode() async {
     if (_isFollowMode) {
       _stopFollowMode();
@@ -81,22 +121,18 @@ class _PlayerBodyState extends State<_PlayerBody> {
       return;
     }
 
-    // 检查是否选择了主旋律轨道
     if (_melodyTrackIndex == null) {
-      _showAlert('请先选择主旋律轨道', '在轨道列表中点击"主旋律"按钮选择一个轨道。');
+      _showAlert('请先选择主旋律轨道', '先在轨道列表中指定主旋律，再开启实时跟随。');
       return;
     }
 
-    // 请求麦克风权限
     final granted = await _requestMicPermission();
     if (!granted) return;
 
-    // 启动跟随模式
     _startFollowMode();
     setState(() => _isFollowMode = true);
   }
 
-  /// 请求麦克风权限
   Future<bool> _requestMicPermission() async {
     var status = await Permission.microphone.status;
     if (status.isGranted) return true;
@@ -105,61 +141,57 @@ class _PlayerBodyState extends State<_PlayerBody> {
     if (status.isGranted) return true;
 
     if (mounted) {
-      _showAlert('需要麦克风权限', '跟随模式需要使用麦克风检测您的演奏。请在系统设置中允许麦克风访问。');
+      _showAlert('需要麦克风权限', '跟随模式会通过麦克风识别起拍和速度，请在系统设置中允许访问。');
     }
     return false;
   }
 
-  /// 启动跟随模式
   void _startFollowMode() {
     final player = widget.player;
     final song = player.songData;
     if (song == null || _melodyTrackIndex == null) return;
 
-    // 获取主旋律轨道的音符
     final melodyTrack = song.tracks.firstWhere(
-      (t) => t.index == _melodyTrackIndex,
+      (track) => track.index == _melodyTrackIndex,
       orElse: () => song.tracks.first,
     );
 
-    // 初始化三层模块
     _micInput = MicrophoneInput();
     _onsetDetector = OnsetDetector();
-    _followController = FollowModeController(
-      onsetDetector: _onsetDetector!,
-    );
+    _followController = FollowModeController(onsetDetector: _onsetDetector!);
 
-    // 设置回调
     _followController!.onSpeedChanged = (speed) {
       player.setSpeed(speed);
-      if (mounted) setState(() => _followSpeedFactor = speed);
+      if (mounted) {
+        setState(() => _followSpeedFactor = speed);
+      }
     };
     _followController!.onStateChanged = (state) {
-      if (mounted) setState(() => _followState = state);
+      if (mounted) {
+        setState(() => _followState = state);
+      }
     };
 
-    // 加载乐谱 → 连接流 → 启动
     _followController!.loadScore(melodyTrack.notes);
     _onsetDetector!.attachPitchStream(_micInput!.pitchStream);
     _micInput!.start();
     _followController!.start();
   }
 
-  /// 停止跟随模式
   void _stopFollowMode() {
     _followController?.stop();
     _onsetDetector?.detach();
     _micInput?.stop();
-
-    // 恢复手动速度
     widget.player.setSpeed(1.0);
-    setState(() {
-      _followState = FollowModeState.idle;
-      _followSpeedFactor = 1.0;
-    });
+
+    if (mounted) {
+      setState(() {
+        _followState = FollowModeState.idle;
+        _followSpeedFactor = 1.0;
+      });
+    }
   }
 
-  /// 显示提示弹窗
   void _showAlert(String title, String message) {
     showCupertinoDialog<void>(
       context: context,
@@ -180,336 +212,540 @@ class _PlayerBodyState extends State<_PlayerBody> {
   @override
   Widget build(BuildContext context) {
     final player = widget.player;
-    return Column(
-      children: [
-        // SoundFont 未加载提示
-        if (!player.engine.isReady)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: CupertinoColors.systemYellow.withValues(alpha: 0.2),
-            child: const Text(
-              '⚠ SoundFont 未加载，请将 .sf2 文件放入 assets/soundfonts/',
-              style: TextStyle(fontSize: 13, color: CupertinoColors.systemOrange),
-              textAlign: TextAlign.center,
-            ),
+    final song = player.songData;
+    if (song == null) return const SizedBox.shrink();
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!player.isSoundfontReady) ...[
+            _SoundfontBanner(player: player),
+            const SizedBox(height: 14),
+          ],
+          _StageConsole(
+            player: player,
+            isFollowMode: _isFollowMode,
+            followState: _followState,
+            followSpeedFactor: _followSpeedFactor,
           ),
-        const SizedBox(height: 24),
-        _SongInfoSection(player: player),
-        const SizedBox(height: 32),
-        _ProgressSection(player: player),
-        const SizedBox(height: 24),
-        _PlaybackControls(player: player),
-        const SizedBox(height: 24),
-        // 跟随模式 / 手动速度调节
-        _isFollowMode
-            ? _FollowModeStatus(
-                state: _followState,
-                speedFactor: _followSpeedFactor,
-                onStop: _toggleFollowMode,
-              )
-            : _SpeedControl(player: player),
-        const SizedBox(height: 8),
-        // 跟随模式开关
-        _FollowModeToggle(
-          isFollowMode: _isFollowMode,
-          melodyTrackIndex: _melodyTrackIndex,
-          onToggle: _toggleFollowMode,
-        ),
-        const SizedBox(height: 8),
-        // 轨道列表
-        Expanded(
-          child: _TrackList(
+          const SizedBox(height: 14),
+          _PerformanceConsole(
+            player: player,
+            isFollowMode: _isFollowMode,
+            followState: _followState,
+            followSpeedFactor: _followSpeedFactor,
+            melodyTrackIndex: _melodyTrackIndex,
+            onToggleFollow: _toggleFollowMode,
+          ),
+          const SizedBox(height: 14),
+          _TrackSalon(
             player: player,
             melodyTrackIndex: _melodyTrackIndex,
             onSetMelody: _setMelodyTrack,
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// 歌曲信息区域
-class _SongInfoSection extends StatelessWidget {
+class _SoundfontBanner extends StatelessWidget {
   final MidiPlayerController player;
-  const _SongInfoSection({required this.player});
+
+  const _SoundfontBanner({required this.player});
+
+  @override
+  Widget build(BuildContext context) {
+    final progressPercent =
+        (player.soundfontDownloadProgress * 100).clamp(0, 100).round();
+    final message = switch (player.soundfontState) {
+      SoundfontSetupState.downloading => '正在自动下载演出音色 $progressPercent%',
+      SoundfontSetupState.failed =>
+        player.soundfontErrorMessage ?? '演出音色下载失败，请稍后重试。',
+      SoundfontSetupState.checking => '正在检查本地演出音色。',
+      SoundfontSetupState.idle => '正在准备演出音色。',
+      SoundfontSetupState.ready => '演出音色已就绪。',
+    };
+    final accent = switch (player.soundfontState) {
+      SoundfontSetupState.failed => LuxuryPalette.ruby,
+      SoundfontSetupState.ready => LuxuryPalette.emerald,
+      _ => LuxuryPalette.goldBright,
+    };
+    final icon = switch (player.soundfontState) {
+      SoundfontSetupState.failed => CupertinoIcons.exclamationmark_triangle_fill,
+      SoundfontSetupState.ready => CupertinoIcons.check_mark_circled_solid,
+      _ => CupertinoIcons.cloud_download_fill,
+    };
+
+    return LuxuryPanel(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      child: Row(
+        children: [
+          Icon(icon, color: accent, size: 18),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: LuxuryPalette.textMuted,
+              ),
+            ),
+          ),
+          if (player.soundfontState == SoundfontSetupState.failed) ...[
+            const SizedBox(width: 12),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 0),
+              onPressed: player.retrySoundfontSetup,
+              child: const Text(
+                '重试',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: LuxuryPalette.goldBright,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StageConsole extends StatelessWidget {
+  final MidiPlayerController player;
+  final bool isFollowMode;
+  final FollowModeState followState;
+  final double followSpeedFactor;
+
+  const _StageConsole({
+    required this.player,
+    required this.isFollowMode,
+    required this.followState,
+    required this.followSpeedFactor,
+  });
 
   @override
   Widget build(BuildContext context) {
     final song = player.songData;
     if (song == null) return const SizedBox.shrink();
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+    final accent = _followAccent(isFollowMode, followState, player.isPlaying);
+    final accentLabel = _followLabel(isFollowMode, followState, player.isPlaying);
+    final displaySpeed =
+        isFollowMode ? followSpeedFactor : player.playbackSpeed;
+    final displayTitle = _displaySongTitle(song.fileName);
+    final remaining = (player.totalDuration - player.currentTime)
+        .clamp(0.0, player.totalDuration);
+    final titleSize = displayTitle.length > 24
+        ? 26.0
+        : (displayTitle.length > 16 ? 30.0 : 34.0);
+
+    return LuxuryPanel(
+      highlighted: true,
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // BPM 显示
-          Text(
-            '${player.currentBpm.toStringAsFixed(0)} BPM',
-            style: CupertinoTheme.of(context)
-                .textTheme
-                .navLargeTitleTextStyle
-                .copyWith(
-                  color: CupertinoColors.systemBlue,
-                  fontSize: 28,
+          Row(
+            children: [
+              const _SectionEyebrow(label: 'NOCTURNE STAGE'),
+              const Spacer(),
+              _StatusBadge(label: accentLabel, color: accent),
+            ],
+          ),
+          const SizedBox(height: 22),
+          const _OrnamentLine(),
+          const SizedBox(height: 18),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayTitle,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: luxuryDisplayStyle(context, size: titleSize),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '黑金排练控制台',
+                      style: TextStyle(
+                        fontSize: 13,
+                        letterSpacing: 1.5,
+                        color: LuxuryPalette.textSubtle,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(width: 16),
+              _StageDial(
+                value: '${displaySpeed.toStringAsFixed(2)}x',
+                caption: isFollowMode ? 'FOLLOW' : 'TEMPO',
+                accent: accent,
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            '${song.noteTracks.length} 轨道 · ${song.format == 0 ? "Format 0" : "Format 1"}',
-            style: CupertinoTheme.of(context)
-                .textTheme
-                .textStyle
-                .copyWith(color: CupertinoColors.secondaryLabel),
+          const SizedBox(height: 22),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _StageMetric(
+                label: 'BPM',
+                value: player.currentBpm.toStringAsFixed(0),
+              ),
+              _StageMetric(
+                label: '时长',
+                value: _formatClock(song.totalDuration),
+              ),
+              _StageMetric(
+                label: '轨道',
+                value: '${song.noteTracks.length}',
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 进度条区域
-class _ProgressSection extends StatelessWidget {
-  final MidiPlayerController player;
-  const _ProgressSection({required this.player});
-
-  String _formatTime(double seconds) {
-    final mins = (seconds ~/ 60).toString().padLeft(2, '0');
-    final secs = (seconds.toInt() % 60).toString().padLeft(2, '0');
-    return '$mins:$secs';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [
-          CupertinoSlider(
-            value: player.progress,
-            onChanged: (value) {
-              player.seekTo(value * player.totalDuration);
-            },
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            decoration: BoxDecoration(
+              color: CupertinoColors.white.withValues(alpha: 0.035),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: LuxuryPalette.divider),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _formatTime(player.currentTime),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: CupertinoColors.secondaryLabel,
-                  ),
+                Row(
+                  children: [
+                    const Text(
+                      '场次进度',
+                      style: TextStyle(
+                        fontSize: 12,
+                        letterSpacing: 1.2,
+                        color: LuxuryPalette.textSubtle,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '-${_formatClock(remaining)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: LuxuryPalette.textMuted,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  _formatTime(player.totalDuration),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: CupertinoColors.secondaryLabel,
-                  ),
+                const SizedBox(height: 8),
+                CupertinoSlider(
+                  value: player.progress,
+                  onChanged: (value) => player.seekTo(value * player.totalDuration),
+                ),
+                Row(
+                  children: [
+                    Text(
+                      _formatClock(player.currentTime),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: LuxuryPalette.textPrimary,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      _formatClock(player.totalDuration),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: LuxuryPalette.textMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 18),
+          _TransportDeck(player: player),
         ],
       ),
     );
   }
 }
 
-/// 播放控制按钮区域
-class _PlaybackControls extends StatelessWidget {
+class _TransportDeck extends StatelessWidget {
   final MidiPlayerController player;
-  const _PlaybackControls({required this.player});
+
+  const _TransportDeck({required this.player});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    final canPlay = player.isSoundfontReady && player.songData != null;
+    final transportButtons = [
+      _TransportButton(
+        icon: CupertinoIcons.stop_fill,
+        label: '停止',
+        onPressed: canPlay ? player.stop : null,
+      ),
+      _TransportButton(
+        icon: CupertinoIcons.gobackward_10,
+        label: '回退',
+        onPressed: canPlay ? () => player.seekTo(player.currentTime - 10) : null,
+      ),
+      _TransportButton(
+        icon: player.isPlaying
+            ? CupertinoIcons.pause_fill
+            : CupertinoIcons.play_fill,
+        label: player.isPlaying ? '暂停' : '播放',
+        highlighted: true,
+        large: true,
+        onPressed: canPlay
+            ? () {
+                if (player.isPlaying) {
+                  player.pause();
+                } else {
+                  player.play();
+                }
+              }
+            : null,
+      ),
+      _TransportButton(
+        icon: CupertinoIcons.goforward_10,
+        label: '快进',
+        onPressed: canPlay ? () => player.seekTo(player.currentTime + 10) : null,
+      ),
+      _TransportButton(
+        icon: CupertinoIcons.arrow_counterclockwise,
+        label: '归零',
+        onPressed: canPlay ? () => player.seekTo(0) : null,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 停止
-        CupertinoButton(
-          onPressed: player.stop,
-          child: const Icon(
-            CupertinoIcons.stop_fill,
-            size: 32,
-            color: CupertinoColors.systemGrey,
-          ),
-        ),
-        const SizedBox(width: 24),
-        // 播放/暂停
-        CupertinoButton(
-          onPressed: () {
-            if (player.isPlaying) {
-              player.pause();
-            } else {
-              player.play();
+        LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 360) {
+              return Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      transportButtons[0],
+                      transportButtons[1],
+                      transportButtons[2],
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      transportButtons[3],
+                      transportButtons[4],
+                    ],
+                  ),
+                ],
+              );
             }
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: transportButtons,
+            );
           },
-          child: Icon(
-            player.isPlaying
-                ? CupertinoIcons.pause_circle_fill
-                : CupertinoIcons.play_circle_fill,
-            size: 64,
-            color: CupertinoColors.systemBlue,
-          ),
         ),
-        const SizedBox(width: 24),
-        // 快进 10 秒
-        CupertinoButton(
-          onPressed: () => player.seekTo(player.currentTime + 10),
-          child: const Icon(
-            CupertinoIcons.goforward_10,
-            size: 32,
-            color: CupertinoColors.systemGrey,
-          ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: _ConsoleNote(
+                label: canPlay ? 'Tone Ready' : 'Tone Pending',
+                value: canPlay ? '可直接演奏' : '等待音色加载',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ConsoleNote(
+                label: 'Mode',
+                value: player.isPlaying ? '舞台运行中' : '待机',
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
 }
 
-/// 跟随模式状态显示
-class _FollowModeStatus extends StatelessWidget {
-  final FollowModeState state;
-  final double speedFactor;
-  final VoidCallback onStop;
-
-  const _FollowModeStatus({
-    required this.state,
-    required this.speedFactor,
-    required this.onStop,
-  });
-
-  String get _stateLabel => switch (state) {
-        FollowModeState.idle => '空闲',
-        FollowModeState.following => '跟随中',
-        FollowModeState.waitingForOnset => '等待演奏…',
-      };
-
-  Color get _stateColor => switch (state) {
-        FollowModeState.idle => CupertinoColors.systemGrey,
-        FollowModeState.following => CupertinoColors.systemGreen,
-        FollowModeState.waitingForOnset => CupertinoColors.systemOrange,
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        children: [
-          Icon(CupertinoIcons.mic_fill, size: 18, color: _stateColor),
-          const SizedBox(width: 8),
-          Text(
-            _stateLabel,
-            style: TextStyle(fontSize: 14, color: _stateColor),
-          ),
-          const Spacer(),
-          Text(
-            '${speedFactor.toStringAsFixed(2)}x',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: CupertinoColors.label,
-            ),
-          ),
-          const SizedBox(width: 12),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(32, 32),
-            onPressed: onStop,
-            child: const Icon(
-              CupertinoIcons.stop_circle,
-              size: 24,
-              color: CupertinoColors.systemRed,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 跟随模式开关行
-class _FollowModeToggle extends StatelessWidget {
-  final bool isFollowMode;
-  final int? melodyTrackIndex;
-  final VoidCallback onToggle;
-
-  const _FollowModeToggle({
-    required this.isFollowMode,
-    required this.melodyTrackIndex,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        children: [
-          const Icon(
-            CupertinoIcons.waveform,
-            size: 18,
-            color: CupertinoColors.secondaryLabel,
-          ),
-          const SizedBox(width: 8),
-          const Text('跟随模式', style: TextStyle(fontSize: 14)),
-          if (melodyTrackIndex == null && !isFollowMode)
-            const Text(
-              '  (请先选择主旋律)',
-              style: TextStyle(
-                fontSize: 12,
-                color: CupertinoColors.systemOrange,
-              ),
-            ),
-          const Spacer(),
-          CupertinoSwitch(
-            value: isFollowMode,
-            onChanged: (_) => onToggle(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 速度调节区域
-class _SpeedControl extends StatelessWidget {
+class _PerformanceConsole extends StatelessWidget {
   final MidiPlayerController player;
-  const _SpeedControl({required this.player});
+  final bool isFollowMode;
+  final FollowModeState followState;
+  final double followSpeedFactor;
+  final int? melodyTrackIndex;
+  final Future<void> Function() onToggleFollow;
+
+  const _PerformanceConsole({
+    required this.player,
+    required this.isFollowMode,
+    required this.followState,
+    required this.followSpeedFactor,
+    required this.melodyTrackIndex,
+    required this.onToggleFollow,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
+    final followAccent = _followAccent(isFollowMode, followState, player.isPlaying);
+    final followNote = switch (followState) {
+      FollowModeState.following => '伴奏正在贴合你的演奏速度。',
+      FollowModeState.waitingForOnset => '已进入跟随模式，等待新的起拍。',
+      FollowModeState.idle => isFollowMode ? '跟随已开启，等待演奏输入。' : '当前为手动排练模式。',
+    };
+
+    return LuxuryPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            CupertinoIcons.speedometer,
-            size: 18,
-            color: CupertinoColors.secondaryLabel,
+          Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  _SectionEyebrow(label: 'PERFORMANCE'),
+                  SizedBox(height: 10),
+                ],
+              ),
+              const Spacer(),
+              CupertinoSwitch(
+                value: isFollowMode,
+                onChanged: (_) => onToggleFollow(),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
           Text(
-            '${player.playbackSpeed.toStringAsFixed(2)}x',
+            '跟随与排练',
+            style: luxuryDisplayStyle(context, size: 28),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            followNote,
             style: const TextStyle(
               fontSize: 14,
-              color: CupertinoColors.label,
+              height: 1.45,
+              color: LuxuryPalette.textMuted,
             ),
           ),
-          Expanded(
-            child: CupertinoSlider(
-              value: player.playbackSpeed,
-              min: 0.25,
-              max: 4.0,
-              divisions: 15,
-              onChanged: player.setSpeed,
-            ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _ConsoleCard(
+                  label: '主旋律',
+                  value: melodyTrackIndex == null
+                      ? '未指定'
+                      : 'Track ${melodyTrackIndex! + 1}',
+                  accent: melodyTrackIndex == null
+                      ? LuxuryPalette.ruby
+                      : LuxuryPalette.goldBright,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ConsoleCard(
+                  label: isFollowMode ? '跟随倍率' : '速度倍率',
+                  value: isFollowMode
+                      ? '${followSpeedFactor.toStringAsFixed(2)}x'
+                      : '${player.playbackSpeed.toStringAsFixed(2)}x',
+                  accent: followAccent,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: isFollowMode
+                ? Container(
+                    key: const ValueKey('follow-live'),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: followAccent.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: followAccent.withValues(alpha: 0.28),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          CupertinoIcons.waveform_path_ecg,
+                          size: 18,
+                          color: followAccent,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _followLabel(true, followState, player.isPlaying),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: LuxuryPalette.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Container(
+                    key: const ValueKey('manual-slider'),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.white.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: LuxuryPalette.divider),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              '手动速度',
+                              style: TextStyle(
+                                fontSize: 12,
+                                letterSpacing: 1.2,
+                                color: LuxuryPalette.textSubtle,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${player.playbackSpeed.toStringAsFixed(2)}x',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: LuxuryPalette.goldBright,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        CupertinoSlider(
+                          value: player.playbackSpeed,
+                          min: 0.25,
+                          max: 4.0,
+                          divisions: 15,
+                          onChanged: player.setSpeed,
+                        ),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
@@ -517,13 +753,12 @@ class _SpeedControl extends StatelessWidget {
   }
 }
 
-/// 轨道列表区域
-class _TrackList extends StatelessWidget {
+class _TrackSalon extends StatelessWidget {
   final MidiPlayerController player;
   final int? melodyTrackIndex;
   final ValueChanged<int> onSetMelody;
 
-  const _TrackList({
+  const _TrackSalon({
     required this.player,
     required this.melodyTrackIndex,
     required this.onSetMelody,
@@ -532,28 +767,72 @@ class _TrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tracks = player.songData?.noteTracks ?? [];
-    if (tracks.isEmpty) {
-      return const Center(child: Text('无轨道数据'));
-    }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: tracks.length,
-      itemBuilder: (context, index) {
-        final track = tracks[index];
-        return _TrackTile(
-          track: track,
-          isMelody: track.index == melodyTrackIndex,
-          onToggleMute: () => player.toggleTrackMute(track.index),
-          onVolumeChanged: (v) => player.setTrackVolume(track.index, v),
-          onSetMelody: () => onSetMelody(track.index),
-        );
-      },
+    return LuxuryPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  _SectionEyebrow(label: 'TRACK SALON'),
+                  SizedBox(height: 10),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                '${tracks.length} 条',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: LuxuryPalette.textMuted,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            '轨道总谱',
+            style: luxuryDisplayStyle(context, size: 28),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '在这里处理主旋律、静音和混音平衡。',
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color: LuxuryPalette.textMuted,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (tracks.isEmpty)
+            const Text(
+              '当前曲目没有可控制的音符轨道。',
+              style: TextStyle(color: LuxuryPalette.textMuted),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: tracks.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final track = tracks[index];
+                return _TrackTile(
+                  track: track,
+                  isMelody: track.index == melodyTrackIndex,
+                  onToggleMute: () => player.toggleTrackMute(track.index),
+                  onVolumeChanged: (value) => player.setTrackVolume(track.index, value),
+                  onSetMelody: () => onSetMelody(track.index),
+                );
+              },
+            ),
+        ],
+      ),
     );
   }
 }
 
-/// 单个轨道行
 class _TrackTile extends StatelessWidget {
   final MidiTrackInfo track;
   final bool isMelody;
@@ -571,93 +850,123 @@ class _TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = track.name.isNotEmpty
-        ? track.name
-        : '轨道 ${track.index + 1}';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    final title = track.name.isNotEmpty ? track.name : '轨道 ${track.index + 1}';
+    final channels = track.channels.toList()..sort();
+    final channelText = channels.isEmpty ? '无通道' : 'CH ${channels.join(', ')}';
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        color: CupertinoColors.systemBackground,
-        borderRadius: BorderRadius.circular(10),
+        color: isMelody
+            ? LuxuryPalette.gold.withValues(alpha: 0.08)
+            : CupertinoColors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isMelody
+              ? LuxuryPalette.gold.withValues(alpha: 0.4)
+              : LuxuryPalette.divider,
+        ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 第一行：静音 + 名称 + 音符数
           Row(
             children: [
               CupertinoButton(
                 padding: EdgeInsets.zero,
-                minimumSize: const Size(32, 32),
+                minimumSize: const Size(34, 34),
                 onPressed: onToggleMute,
                 child: Icon(
                   track.isMuted
                       ? CupertinoIcons.speaker_slash_fill
                       : CupertinoIcons.speaker_2_fill,
-                  size: 20,
+                  size: 18,
                   color: track.isMuted
-                      ? CupertinoColors.systemGrey
-                      : CupertinoColors.systemBlue,
+                      ? LuxuryPalette.textSubtle
+                      : LuxuryPalette.goldBright,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  name,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: track.isMuted
-                        ? CupertinoColors.secondaryLabel
-                        : CupertinoColors.label,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: LuxuryPalette.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$channelText · ${track.noteCount} 音符',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: LuxuryPalette.textMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Text(
-                '${track.noteCount} 音符',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: CupertinoColors.tertiaryLabel,
-                ),
-              ),
-              const SizedBox(width: 8),
-              // 主旋律标记/按钮
               CupertinoButton(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                minimumSize: const Size(0, 24),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                minimumSize: const Size(30, 30),
+                color: isMelody
+                    ? LuxuryPalette.gold.withValues(alpha: 0.16)
+                    : CupertinoColors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(999),
                 onPressed: onSetMelody,
                 child: Text(
-                  isMelody ? '★ 主旋律' : '主旋律',
+                  isMelody ? '主旋律' : '设为主旋律',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     color: isMelody
-                        ? CupertinoColors.systemOrange
-                        : CupertinoColors.tertiaryLabel,
+                        ? LuxuryPalette.goldBright
+                        : LuxuryPalette.textMuted,
                   ),
                 ),
               ),
             ],
           ),
-          // 第二行：音量滑块
+          const SizedBox(height: 14),
           Row(
             children: [
-              const SizedBox(width: 40),
-              const Icon(
-                CupertinoIcons.volume_down,
-                size: 14,
-                color: CupertinoColors.tertiaryLabel,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.black.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: LuxuryPalette.divider),
+                ),
+                child: Text(
+                  track.isMuted ? '静音中' : '已开启',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: track.isMuted
+                        ? LuxuryPalette.textSubtle
+                        : LuxuryPalette.goldBright,
+                  ),
+                ),
               ),
+              const SizedBox(width: 10),
               Expanded(
                 child: CupertinoSlider(
                   value: track.isMuted ? 0.0 : track.volume,
                   onChanged: track.isMuted ? null : onVolumeChanged,
                 ),
               ),
-              const Icon(
-                CupertinoIcons.volume_up,
-                size: 14,
-                color: CupertinoColors.tertiaryLabel,
+              const SizedBox(width: 8),
+              Text(
+                '${(track.volume * 100).round()}%',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: LuxuryPalette.textMuted,
+                ),
               ),
             ],
           ),
@@ -665,4 +974,383 @@ class _TrackTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SectionEyebrow extends StatelessWidget {
+  final String label;
+
+  const _SectionEyebrow({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 11,
+        letterSpacing: 2.1,
+        color: LuxuryPalette.textSubtle,
+      ),
+    );
+  }
+}
+
+class _OrnamentLine extends StatelessWidget {
+  const _OrnamentLine();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(width: 36, height: 2, color: LuxuryPalette.goldBright),
+        const SizedBox(width: 10),
+        Container(
+          width: 10,
+          height: 10,
+          decoration: const BoxDecoration(
+            color: LuxuryPalette.goldBright,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Container(height: 1, color: LuxuryPalette.divider),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _StatusBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.34)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _StageDial extends StatelessWidget {
+  final String value;
+  final String caption;
+  final Color accent;
+
+  const _StageDial({
+    required this.value,
+    required this.caption,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 110,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const RadialGradient(
+          colors: [Color(0xFF241C16), Color(0xFF130F0D)],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.34)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              value,
+              style: luxuryDisplayStyle(
+                context,
+                size: 22,
+                color: LuxuryPalette.goldBright,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              caption,
+              style: const TextStyle(
+                fontSize: 10,
+                letterSpacing: 1.6,
+                color: LuxuryPalette.textSubtle,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StageMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _StageMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 92,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: CupertinoColors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: LuxuryPalette.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              letterSpacing: 1.1,
+              color: LuxuryPalette.textSubtle,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: LuxuryPalette.goldBright,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransportButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool highlighted;
+  final bool large;
+
+  const _TransportButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.highlighted = false,
+    this.large = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = large ? 72.0 : 56.0;
+    final iconSize = large ? 28.0 : 20.0;
+    final enabled = onPressed != null;
+
+    return Column(
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: enabled && highlighted
+                ? const LinearGradient(
+                    colors: [Color(0xFFE7CF99), Color(0xFFC5964F)],
+                  )
+                : const LinearGradient(
+                    colors: [LuxuryPalette.panelRaised, LuxuryPalette.panel],
+                  ),
+            border: Border.all(
+              color: enabled && highlighted
+                  ? LuxuryPalette.goldBright
+                  : LuxuryPalette.divider,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: (enabled && highlighted
+                        ? LuxuryPalette.gold
+                        : CupertinoColors.black)
+                    .withValues(alpha: 0.22),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: CupertinoButton(
+            padding: EdgeInsets.zero,
+            minimumSize: Size.square(size),
+            borderRadius: BorderRadius.circular(size / 2),
+            onPressed: onPressed,
+            child: Icon(
+              icon,
+              size: iconSize,
+              color: enabled
+                  ? (highlighted
+                      ? CupertinoColors.black
+                      : LuxuryPalette.textPrimary)
+                  : LuxuryPalette.textSubtle,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: enabled
+                ? LuxuryPalette.textMuted
+                : LuxuryPalette.textSubtle,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConsoleNote extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ConsoleNote({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      decoration: BoxDecoration(
+        color: CupertinoColors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: LuxuryPalette.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              letterSpacing: 1.1,
+              color: LuxuryPalette.textSubtle,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: LuxuryPalette.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConsoleCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color accent;
+
+  const _ConsoleCard({
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: LuxuryPalette.textSubtle,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: accent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _followAccent(bool isFollowMode, FollowModeState state, bool isPlaying) {
+  if (!isFollowMode) {
+    return isPlaying ? LuxuryPalette.goldBright : LuxuryPalette.gold;
+  }
+  return switch (state) {
+    FollowModeState.following => LuxuryPalette.emerald,
+    FollowModeState.waitingForOnset => LuxuryPalette.ruby,
+    FollowModeState.idle => LuxuryPalette.goldBright,
+  };
+}
+
+String _followLabel(bool isFollowMode, FollowModeState state, bool isPlaying) {
+  if (!isFollowMode) {
+    return isPlaying ? '手动播放' : '待机';
+  }
+  return switch (state) {
+    FollowModeState.following => '实时跟随',
+    FollowModeState.waitingForOnset => '等待起拍',
+    FollowModeState.idle => '跟随待命',
+  };
+}
+
+String _formatClock(double seconds) {
+  final totalSeconds = seconds.clamp(0.0, double.infinity).round();
+  final minutes = totalSeconds ~/ 60;
+  final remainSeconds = totalSeconds % 60;
+  return '$minutes:${remainSeconds.toString().padLeft(2, '0')}';
+}
+
+String _displaySongTitle(String fileName) {
+  final stripped = fileName.replaceAll(
+    RegExp(r'\.mid$', caseSensitive: false),
+    '',
+  );
+  final normalized = stripped.replaceAll(RegExp(r'[_-]+'), ' ').trim();
+  return normalized.isEmpty ? fileName : normalized;
 }
