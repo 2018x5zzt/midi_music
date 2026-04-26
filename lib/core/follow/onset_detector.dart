@@ -98,7 +98,7 @@ class OnsetDetectorConfig {
   final int maxMidiNote;
 
   const OnsetDetectorConfig({
-    this.volumeThreshold = 0.05,
+    this.volumeThreshold = 0.0005,  // 原始RMS值阈值（不再归一化）
     this.precisionThreshold = 0.5,
     this.debounceMs = 80,
     this.minMidiNote = 21,  // A0
@@ -218,6 +218,8 @@ class OnsetDetector {
 
     _lastOnsetNote = data.midiNote;
     _lastOnsetTime = now;
+
+    print('[Onset] Note=${data.midiNote} Freq=${data.frequency.toStringAsFixed(1)}Hz Vol=${data.volume.toStringAsFixed(4)}');
 
     _onsetController.add(OnsetEvent(
       midiNote: data.midiNote,

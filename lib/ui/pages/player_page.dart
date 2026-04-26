@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
@@ -103,7 +105,10 @@ class _PlayerBodyState extends State<_PlayerBody> {
 
   @override
   void dispose() {
-    _stopFollowMode();
+    // 在 dispose 时停止跟随模式，不触发回调避免 setState 错误
+    _followController?.stop(notifyCallbacks: false);
+    _onsetDetector?.detach();
+    _micInput?.stop();
     _followController?.dispose();
     _onsetDetector?.dispose();
     _micInput?.dispose();
@@ -129,8 +134,18 @@ class _PlayerBodyState extends State<_PlayerBody> {
     final granted = await _requestMicPermission();
     if (!granted) return;
 
-    _startFollowMode();
-    setState(() => _isFollowMode = true);
+    try {
+      await _startFollowMode();
+      if (mounted) {
+        setState(() => _isFollowMode = true);
+      }
+    } catch (e) {
+      _stopFollowMode();
+      if (mounted) {
+        setState(() => _isFollowMode = false);
+        _showAlert('跟随模式启动失败', '无法启动麦克风检测：$e');
+      }
+    }
   }
 
   Future<bool> _requestMicPermission() async {
@@ -146,7 +161,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
     return false;
   }
 
-  void _startFollowMode() {
+  Future<void> _startFollowMode() async {
     final player = widget.player;
     final song = player.songData;
     if (song == null || _melodyTrackIndex == null) return;
@@ -163,23 +178,45 @@ class _PlayerBodyState extends State<_PlayerBody> {
     _followController!.onSpeedChanged = (speed) {
       player.setSpeed(speed);
       if (mounted) {
-        setState(() => _followSpeedFactor = speed);
+        // 确保在主线程更新UI
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _followSpeedFactor = speed);
+          }
+        });
       }
     };
     _followController!.onStateChanged = (state) {
       if (mounted) {
-        setState(() => _followState = state);
+        // 确保在主线程更新UI
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _followState = state);
+          }
+        });
       }
     };
 
     _followController!.loadScore(melodyTrack.notes);
     _onsetDetector!.attachPitchStream(_micInput!.pitchStream);
-    _micInput!.start();
+
+    // 使用更适合实时音频处理的参数
+    await _micInput!.start(
+      sampleRate: 44100,
+      bufferSize: 4096,  // 减小缓冲区，降低延迟
+      minPrecision: 0.6,  // 提高精度要求
+    );
+
+    // 确保播放器在启动，否则没有声音
+    if (!player.isPlaying) {
+      player.play();
+    }
+
     _followController!.start();
   }
 
   void _stopFollowMode() {
-    _followController?.stop();
+    _followController?.stop(notifyCallbacks: false);
     _onsetDetector?.detach();
     _micInput?.stop();
     widget.player.setSpeed(1.0);

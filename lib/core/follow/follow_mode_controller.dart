@@ -142,12 +142,14 @@ class FollowModeController {
   }
 
   /// 停止跟随模式
-  void stop() {
+  void stop({bool notifyCallbacks = true}) {
     _onsetSubscription?.cancel();
     _onsetSubscription = null;
     _speedFactor = 1.0;
     _setState(FollowModeState.idle);
-    onSpeedChanged?.call(1.0);
+    if (notifyCallbacks) {
+      onSpeedChanged?.call(1.0);
+    }
   }
 
   /// 从指定音符索引恢复（用于 seek 后重新对齐）
@@ -172,12 +174,15 @@ class FollowModeController {
     if (_state == FollowModeState.idle) return;
     if (_expectedNoteIndex >= _scoreNotes.length) {
       // 乐谱已结束
+      print('🎵 乐谱已结束，停止跟随');
       stop();
       return;
     }
 
     final expectedNote = _scoreNotes[_expectedNoteIndex];
     final isMatch = _matchesExpectedNote(onset.midiNote, expectedNote);
+
+    print('[FollowController] Detected=${onset.midiNote}, Expected=${expectedNote.noteNumber}, Match=$isMatch, State=$_state');
 
     if (isMatch) {
       _onNoteMatched(onset, expectedNote);
