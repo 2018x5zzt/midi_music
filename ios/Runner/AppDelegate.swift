@@ -28,7 +28,6 @@ import AVFoundation
         mode: AVAudioSession.Mode.default,
         options: [
           AVAudioSession.CategoryOptions.allowBluetooth,
-          AVAudioSession.CategoryOptions.allowBluetoothA2DP,
           AVAudioSession.CategoryOptions.defaultToSpeaker,
           AVAudioSession.CategoryOptions.mixWithOthers
         ]
@@ -36,10 +35,8 @@ import AVFoundation
 
       // 激活音频会话
       try session.setActive(true)
-
-      print("[AudioSession] 配置成功: playAndRecord + defaultToSpeaker + mixWithOthers")
     } catch {
-      print("[AudioSession] 配置失败: \(error.localizedDescription)")
+      NSLog("[AudioSession] 配置失败: \(error.localizedDescription)")
     }
   }
 }

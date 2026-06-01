@@ -110,8 +110,8 @@ class FollowModeController {
   FollowModeController({
     required OnsetDetector onsetDetector,
     FollowModeConfig? config,
-  })  : _onsetDetector = onsetDetector,
-        _config = config ?? const FollowModeConfig();
+  }) : _onsetDetector = onsetDetector,
+       _config = config ?? const FollowModeConfig();
 
   /// 更新配置
   void updateConfig(FollowModeConfig config) {
@@ -134,9 +134,7 @@ class FollowModeController {
     _lastOnsetTimestamp = null;
 
     _onsetSubscription?.cancel();
-    _onsetSubscription = _onsetDetector.onsetStream.listen(
-      _handleOnset,
-    );
+    _onsetSubscription = _onsetDetector.onsetStream.listen(_handleOnset);
 
     _setState(FollowModeState.following);
   }
@@ -146,9 +144,11 @@ class FollowModeController {
     _onsetSubscription?.cancel();
     _onsetSubscription = null;
     _speedFactor = 1.0;
-    _setState(FollowModeState.idle);
     if (notifyCallbacks) {
+      _setState(FollowModeState.idle);
       onSpeedChanged?.call(1.0);
+    } else {
+      _state = FollowModeState.idle;
     }
   }
 
@@ -173,16 +173,12 @@ class FollowModeController {
   void _handleOnset(OnsetEvent onset) {
     if (_state == FollowModeState.idle) return;
     if (_expectedNoteIndex >= _scoreNotes.length) {
-      // 乐谱已结束
-      print('🎵 乐谱已结束，停止跟随');
       stop();
       return;
     }
 
     final expectedNote = _scoreNotes[_expectedNoteIndex];
     final isMatch = _matchesExpectedNote(onset.midiNote, expectedNote);
-
-    print('[FollowController] Detected=${onset.midiNote}, Expected=${expectedNote.noteNumber}, Match=$isMatch, State=$_state');
 
     if (isMatch) {
       _onNoteMatched(onset, expectedNote);
@@ -204,7 +200,7 @@ class FollowModeController {
     if (_lastOnsetTimestamp != null) {
       final actualInterval =
           onset.timestamp.difference(_lastOnsetTimestamp!).inMilliseconds /
-              1000.0;
+          1000.0;
 
       // 期望间隔 = 当前音符 startTime - 上一个匹配音符 startTime
       final prevIndex = _expectedNoteIndex - 1;
@@ -306,6 +302,6 @@ class FollowModeController {
 
   /// 释放资源
   void dispose() {
-    stop();
+    stop(notifyCallbacks: false);
   }
 }

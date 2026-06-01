@@ -12,6 +12,7 @@ class MicrophoneInput {
   final _pitchController = StreamController<PitchData>.broadcast();
 
   PitchDetector? _pitchDetector;
+  Float64List? _sampleBuffer;
   bool _isListening = false;
   bool _isProcessingBuffer = false;
   double _minPrecision = 0.7;
@@ -23,7 +24,6 @@ class MicrophoneInput {
     int sampleRate = 44100,
     int bufferSize = 8192,
     double minPrecision = 0.7,
-    double toleranceCents = 0.6,
   }) async {
     if (_isListening) return;
 
@@ -41,7 +41,6 @@ class MicrophoneInput {
     await _audioCapture.start(
       _onAudioData,
       (Object error) {
-        print('[MicrophoneError] $error');
         if (_pitchController.isClosed) return;
         _pitchController.addError(error);
       },
@@ -71,13 +70,11 @@ class MicrophoneInput {
     }
 
     _isProcessingBuffer = true;
-    _processAudioData(audioData).whenComplete(() {
-      _isProcessingBuffer = false;
-    }).catchError((error, stackTrace) {
-      print('[AudioProcessingError] $error');
-      print('[StackTrace] $stackTrace');
-      // 不重新抛出错误，避免崩溃
-    });
+    unawaited(
+      _processAudioData(audioData).whenComplete(() {
+        _isProcessingBuffer = false;
+      }),
+    );
   }
 
   Future<void> _processAudioData(Float32List audioData) async {
@@ -86,10 +83,7 @@ class MicrophoneInput {
     if (audioData.length < detector.bufferSize) return;
 
     try {
-      final samples = audioData
-          .sublist(0, detector.bufferSize)
-          .map((value) => value.toDouble())
-          .toList(growable: false);
+      final samples = _copySamples(audioData, detector.bufferSize);
       final result = await detector.getPitchFromFloatBuffer(samples);
 
       final volume = _calculateRms(audioData);
@@ -98,54 +92,53 @@ class MicrophoneInput {
           : 20.0 * math.log(volume) / math.ln10;
 
       final hasPitch =
-          result.pitched && result.pitch > 0 && result.probability >= _minPrecision;
+          result.pitched &&
+          result.pitch > 0 &&
+          result.probability >= _minPrecision;
       final frequency = hasPitch ? result.pitch : -1.0;
       final midiNote = hasPitch ? _frequencyToMidi(result.pitch) : -1;
       final precision = _clamp01(result.probability);
 
-      _pitchController.add(PitchData(
-        frequency: frequency,
-        midiNote: midiNote,
-        noteName: midiNote >= 0 ? _midiNoteName(midiNote) : '',
-        octave: midiNote >= 0 ? _midiOctave(midiNote) : -1,
-        volume: volume,
-        volumeDbFS: volumeDbFS,
-        precision: precision,
-        timestamp: DateTime.now(),
-      ));
-
-      // 调试日志：每秒打印一次检测结果
-      if (hasPitch && DateTime.now().millisecond % 1000 < 100) {
-        print('[Pitch] Note=$midiNote ${midiNote >= 0 ? _midiNoteName(midiNote) : ""} Freq=${frequency.toStringAsFixed(1)}Hz Vol=${volume.toStringAsFixed(4)} Prec=${precision.toStringAsFixed(2)}');
-      }
-    } catch (error) {
+      _pitchController.add(
+        PitchData(
+          frequency: frequency,
+          midiNote: midiNote,
+          noteName: midiNote >= 0 ? _midiNoteName(midiNote) : '',
+          octave: midiNote >= 0 ? _midiOctave(midiNote) : -1,
+          volume: volume,
+          volumeDbFS: volumeDbFS,
+          precision: precision,
+          timestamp: DateTime.now(),
+        ),
+      );
+    } catch (error, stackTrace) {
       if (_pitchController.isClosed) return;
-      print('[AudioProcessError] $error');
-      _pitchController.addError(error);
+      _pitchController.addError(error, stackTrace);
     }
+  }
+
+  List<double> _copySamples(Float32List audioData, int bufferSize) {
+    var samples = _sampleBuffer;
+    if (samples == null || samples.length != bufferSize) {
+      samples = Float64List(bufferSize);
+      _sampleBuffer = samples;
+    }
+
+    for (var i = 0; i < bufferSize; i++) {
+      samples[i] = audioData[i];
+    }
+    return samples;
   }
 
   double _calculateRms(Float32List audioData) {
     if (audioData.isEmpty) return 0.0;
 
     var sumSquares = 0.0;
-    var maxValue = 0.0;
     for (final sample in audioData) {
-      final absSample = sample.abs();
       sumSquares += sample * sample;
-      if (absSample > maxValue) {
-        maxValue = absSample;
-      }
     }
 
     final rms = math.sqrt(sumSquares / audioData.length);
-
-    // 调试：打印音频数据统计（减少频率避免性能问题）
-    if (DateTime.now().millisecond % 2000 < 100) {
-      print('[AudioStats] RMS=${rms.toStringAsFixed(6)}, Max=${maxValue.toStringAsFixed(6)}, Samples=${audioData.length}');
-    }
-
-    // 直接返回RMS值，不做归一化，保留原始动态范围
     return rms;
   }
 
@@ -157,7 +150,20 @@ class MicrophoneInput {
   }
 
   String _midiNoteName(int midiNote) {
-    const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const names = [
+      'C',
+      'C#',
+      'D',
+      'D#',
+      'E',
+      'F',
+      'F#',
+      'G',
+      'G#',
+      'A',
+      'A#',
+      'B',
+    ];
     return names[midiNote % 12];
   }
 
@@ -173,6 +179,7 @@ class MicrophoneInput {
 
   Future<void> dispose() async {
     await stop();
+    _sampleBuffer = null;
     await _pitchController.close();
   }
 }
