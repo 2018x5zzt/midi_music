@@ -37,6 +37,15 @@ class FollowModeConfig {
   /// 音符匹配容差（半音数），允许偏差范围
   final int noteMatchTolerance;
 
+  /// 是否容忍常见八度误检，使用音级匹配同一类音名
+  final bool allowOctaveError;
+
+  /// 由匹配 onset 间隔测得的可信速度下限，超出范围则忽略
+  final double minMeasuredSpeedFactor;
+
+  /// 由匹配 onset 间隔测得的可信速度上限，超出范围则忽略
+  final double maxMeasuredSpeedFactor;
+
   /// 休止符检测阈值（秒），期望音符间隔超过此值视为休止符
   final double restThresholdSeconds;
 
@@ -48,6 +57,9 @@ class FollowModeConfig {
     this.minSpeedFactor = 0.25,
     this.maxSpeedFactor = 4.0,
     this.noteMatchTolerance = 2,
+    this.allowOctaveError = true,
+    this.minMeasuredSpeedFactor = 0.6,
+    this.maxMeasuredSpeedFactor = 1.6,
     this.restThresholdSeconds = 1.0,
     this.unmatchedThreshold = 3,
   });
@@ -210,7 +222,7 @@ class FollowModeController {
 
         if (expectedInterval > 0.01) {
           final rawFactor = expectedInterval / actualInterval;
-          _applyEmaSpeed(rawFactor);
+          _applyMeasuredSpeed(rawFactor);
         }
       }
     }
@@ -267,7 +279,21 @@ class FollowModeController {
   /// 判断 onset 音符是否匹配期望音符（允许容差）
   bool _matchesExpectedNote(int onsetMidi, MidiNote expected) {
     final diff = (onsetMidi - expected.noteNumber).abs();
-    return diff <= _config.noteMatchTolerance;
+    if (diff <= _config.noteMatchTolerance) {
+      return true;
+    }
+
+    if (!_config.allowOctaveError) {
+      return false;
+    }
+
+    return _pitchClassDistance(onsetMidi, expected.noteNumber) <=
+        _config.noteMatchTolerance;
+  }
+
+  int _pitchClassDistance(int a, int b) {
+    final diff = ((a % 12) - (b % 12)).abs();
+    return diff > 6 ? 12 - diff : diff;
   }
 
   /// 在指定范围内查找匹配音符，返回索引，未找到返回 -1
@@ -291,6 +317,15 @@ class FollowModeController {
     final alpha = _config.emaSmoothingAlpha;
     _speedFactor = alpha * clamped + (1 - alpha) * _speedFactor;
     onSpeedChanged?.call(_speedFactor);
+  }
+
+  /// 只采纳可信范围内的演奏间隔速度，避免单次误检强行拉动速度。
+  void _applyMeasuredSpeed(double rawFactor) {
+    if (rawFactor < _config.minMeasuredSpeedFactor ||
+        rawFactor > _config.maxMeasuredSpeedFactor) {
+      return;
+    }
+    _applyEmaSpeed(rawFactor);
   }
 
   /// 切换状态并通知回调
