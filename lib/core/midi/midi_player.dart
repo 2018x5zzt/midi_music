@@ -163,8 +163,7 @@ class MidiPlayerController extends ChangeNotifier {
       ticksPerBeat: song.ticksPerBeat,
       tempoChanges: song.tempoChanges,
     );
-    // 为每个轨道的乐器设置 program change
-    _setupInstruments();
+    _applyProgramStateAtCurrentPosition();
     _notifyListenersIfActive();
   }
 
@@ -220,6 +219,7 @@ class MidiPlayerController extends ChangeNotifier {
     unawaited(_engine.allNotesOff());
     _clearActiveNotes();
     _updateEventIndex();
+    _applyProgramStateAtCurrentPosition();
 
     if (wasPlaying) play();
     _notifyListenersIfActive();
@@ -235,20 +235,20 @@ class MidiPlayerController extends ChangeNotifier {
   /// 设置轨道音量 (0.0 - 1.0)
   void setTrackVolume(int trackIndex, double volume) {
     if (_isDisposed) return;
-    if (_songData == null) return;
-    if (trackIndex < 0) return;
-    if (trackIndex >= _songData!.tracks.length) return;
-    _songData!.tracks[trackIndex].volume = volume.clamp(0.0, 1.0);
+    final track = _trackByIndex(trackIndex);
+    if (track == null) return;
+    track.volume = volume.clamp(0.0, 1.0);
+    if (track.volume == 0.0) {
+      _stopActiveNotesForTrack(trackIndex);
+    }
     _notifyListenersIfActive();
   }
 
   /// 切换轨道静音
   void toggleTrackMute(int trackIndex) {
     if (_isDisposed) return;
-    if (_songData == null) return;
-    if (trackIndex < 0) return;
-    if (trackIndex >= _songData!.tracks.length) return;
-    final track = _songData!.tracks[trackIndex];
+    final track = _trackByIndex(trackIndex);
+    if (track == null) return;
     track.isMuted = !track.isMuted;
     if (track.isMuted) {
       _stopActiveNotesForTrack(trackIndex);
@@ -302,13 +302,12 @@ class MidiPlayerController extends ChangeNotifier {
 
   /// 分发单个 MIDI 事件到引擎
   void _dispatchEvent(TimelineEvent event) {
-    // 按 trackIndex 检查静音（支持多轨道共享同一 channel）
-    if (_isTrackMuted(event.trackIndex)) return;
-
     switch (event.type) {
       case MidiEventType.noteOn:
+        if (_isTrackMuted(event.trackIndex)) return;
         final vol = _getTrackVolume(event.trackIndex);
         final adjustedVelocity = (event.data2 * vol).round().clamp(0, 127);
+        if (adjustedVelocity == 0) return;
         unawaited(
           _engine.noteOn(
             channel: event.channel,
@@ -318,8 +317,9 @@ class MidiPlayerController extends ChangeNotifier {
         );
         _rememberActiveNote(event);
       case MidiEventType.noteOff:
-        unawaited(_engine.noteOff(channel: event.channel, note: event.data1));
-        _releaseActiveNote(event);
+        if (_releaseActiveNote(event)) {
+          unawaited(_engine.noteOff(channel: event.channel, note: event.data1));
+        }
       case MidiEventType.programChange:
         unawaited(
           _engine.setInstrument(channel: event.channel, program: event.data1),
@@ -331,16 +331,22 @@ class MidiPlayerController extends ChangeNotifier {
 
   /// 检查轨道是否被静音（按 trackIndex 而非 channel）
   bool _isTrackMuted(int trackIndex) {
-    if (_songData == null || trackIndex < 0) return false;
-    if (trackIndex >= _songData!.tracks.length) return false;
-    return _songData!.tracks[trackIndex].isMuted;
+    return _trackByIndex(trackIndex)?.isMuted ?? false;
   }
 
   /// 获取轨道音量（按 trackIndex 而非 channel）
   double _getTrackVolume(int trackIndex) {
-    if (_songData == null || trackIndex < 0) return 1.0;
-    if (trackIndex >= _songData!.tracks.length) return 1.0;
-    return _songData!.tracks[trackIndex].volume;
+    return _trackByIndex(trackIndex)?.volume ?? 1.0;
+  }
+
+  MidiTrackInfo? _trackByIndex(int trackIndex) {
+    if (_songData == null || trackIndex < 0) return null;
+    for (final track in _songData!.tracks) {
+      if (track.index == trackIndex) {
+        return track;
+      }
+    }
+    return null;
   }
 
   /// seek 后更新事件索引（二分查找）
@@ -372,6 +378,36 @@ class MidiPlayerController extends ChangeNotifier {
     }
   }
 
+  void _applyProgramStateAtCurrentPosition() {
+    final songData = _songData;
+    if (songData == null) return;
+
+    final programByChannel = <int, int>{};
+    var hasProgramChangeEvents = false;
+    for (final event in songData.timeline) {
+      if (event.type != MidiEventType.programChange) {
+        continue;
+      }
+      hasProgramChangeEvents = true;
+      programByChannel.putIfAbsent(event.channel, () => 0);
+      if (event.time > _currentTime) {
+        continue;
+      }
+      programByChannel[event.channel] = event.data1;
+    }
+
+    if (!hasProgramChangeEvents) {
+      _setupInstruments();
+      return;
+    }
+
+    for (final entry in programByChannel.entries) {
+      unawaited(
+        _engine.setInstrument(channel: entry.key, program: entry.value),
+      );
+    }
+  }
+
   void _rememberActiveNote(TimelineEvent event) {
     final notesForTrack = _activeNotesByTrack.putIfAbsent(
       event.trackIndex,
@@ -381,13 +417,13 @@ class MidiPlayerController extends ChangeNotifier {
     notesForTrack[key] = (notesForTrack[key] ?? 0) + 1;
   }
 
-  void _releaseActiveNote(TimelineEvent event) {
+  bool _releaseActiveNote(TimelineEvent event) {
     final notesForTrack = _activeNotesByTrack[event.trackIndex];
-    if (notesForTrack == null) return;
+    if (notesForTrack == null) return false;
 
     final key = _ActiveNoteKey(channel: event.channel, note: event.data1);
     final count = notesForTrack[key];
-    if (count == null) return;
+    if (count == null) return false;
 
     if (count <= 1) {
       notesForTrack.remove(key);
@@ -398,14 +434,20 @@ class MidiPlayerController extends ChangeNotifier {
     if (notesForTrack.isEmpty) {
       _activeNotesByTrack.remove(event.trackIndex);
     }
+
+    return true;
   }
 
   void _stopActiveNotesForTrack(int trackIndex) {
     final notesForTrack = _activeNotesByTrack.remove(trackIndex);
     if (notesForTrack == null) return;
 
-    for (final note in notesForTrack.keys) {
-      unawaited(_engine.noteOff(channel: note.channel, note: note.note));
+    for (final entry in notesForTrack.entries) {
+      for (var i = 0; i < entry.value; i++) {
+        unawaited(
+          _engine.noteOff(channel: entry.key.channel, note: entry.key.note),
+        );
+      }
     }
   }
 
@@ -528,7 +570,7 @@ class MidiPlayerController extends ChangeNotifier {
     _soundfontDownloadProgress = 1.0;
     _soundfontErrorMessage = null;
     if (_songData != null) {
-      _setupInstruments();
+      _applyProgramStateAtCurrentPosition();
     }
     _notifyListenersIfActive();
   }

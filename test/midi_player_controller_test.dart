@@ -97,6 +97,105 @@ void main() {
     player.dispose();
   });
 
+  test('加载歌曲时不会提前应用未来的 Program Change', () {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+
+    player.loadSong(
+      _song(
+        tracks: [
+          MidiTrackInfo(index: 0, programByChannel: {0: 40}),
+        ],
+        timeline: [
+          _programChange(trackIndex: 0, channel: 0, program: 40, time: 1),
+        ],
+      ),
+    );
+
+    expect(engine.calls.where((call) => call.type == 'setInstrument'), [
+      const _EngineCall.setInstrument(channel: 0, program: 0),
+    ]);
+
+    player.dispose();
+  });
+
+  test('seek 后恢复当前位置已经生效的 Program Change', () {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          MidiTrackInfo(index: 0, programByChannel: {0: 12}),
+        ],
+        timeline: [
+          _programChange(trackIndex: 0, channel: 0, program: 40, time: 0.1),
+          _programChange(trackIndex: 0, channel: 0, program: 12, time: 0.8),
+        ],
+      ),
+    );
+    engine.clear();
+
+    player.seekTo(0.2);
+
+    expect(engine.calls.where((call) => call.type == 'setInstrument'), [
+      const _EngineCall.setInstrument(channel: 0, program: 40),
+    ]);
+
+    player.dispose();
+  });
+
+  test('seek 回 Program Change 之前时恢复默认乐器', () {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+        ],
+        timeline: [
+          _programChange(trackIndex: 0, channel: 0, program: 40, time: 0.1),
+        ],
+      ),
+    );
+    player.seekTo(0.2);
+    engine.clear();
+
+    player.seekTo(0);
+
+    expect(engine.calls.where((call) => call.type == 'setInstrument'), [
+      const _EngineCall.setInstrument(channel: 0, program: 0),
+    ]);
+
+    player.dispose();
+  });
+
+  test('seek 回开头时恢复所有发生过 Program Change 的 channel', () {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0, 1}),
+        ],
+        timeline: [
+          _programChange(trackIndex: 0, channel: 0, program: 40, time: 0.1),
+          _programChange(trackIndex: 0, channel: 1, program: 12, time: 0.8),
+        ],
+      ),
+    );
+    player.seekTo(1);
+    engine.clear();
+
+    player.seekTo(0);
+
+    expect(engine.calls.where((call) => call.type == 'setInstrument'), [
+      const _EngineCall.setInstrument(channel: 0, program: 0),
+      const _EngineCall.setInstrument(channel: 1, program: 0),
+    ]);
+
+    player.dispose();
+  });
+
   test('负数轨道控制不会抛出越界异常', () {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);
@@ -132,6 +231,88 @@ void main() {
     player.dispose();
   });
 
+  testWidgets('轨道音量按 track.index 而不是列表位置查找', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [_track(index: 4), _track(index: 9)],
+        timeline: [
+          _noteOn(trackIndex: 9, channel: 0, note: 60, velocity: 100, time: 0),
+        ],
+      ),
+    );
+    player.setTrackVolume(9, 0.25);
+    engine.clear();
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+
+    expect(engine.calls.where((call) => call.type == 'noteOn'), [
+      const _EngineCall.noteOn(channel: 0, note: 60, velocity: 25),
+    ]);
+
+    player.dispose();
+  });
+
+  testWidgets('零音量轨道不会在共享 channel 时发送 NoteOn 或 NoteOff', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+          _track(index: 1, channels: {0}),
+        ],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOn(trackIndex: 1, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOff(trackIndex: 0, channel: 0, note: 60, time: 0.1),
+        ],
+      ),
+    );
+    player.setTrackVolume(0, 0);
+    engine.clear();
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(engine.calls.where((call) => call.type == 'noteOn'), [
+      const _EngineCall.noteOn(channel: 0, note: 60, velocity: 100),
+    ]);
+    expect(engine.calls.where((call) => call.type == 'noteOff'), isEmpty);
+
+    player.dispose();
+  });
+
+  testWidgets('播放中把轨道音量设为 0 会停止该轨道活动音', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+          _track(index: 1, channels: {0}),
+        ],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOn(trackIndex: 1, channel: 0, note: 64, velocity: 100, time: 0),
+        ],
+      ),
+    );
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+    engine.clear();
+
+    player.setTrackVolume(0, 0);
+
+    expect(engine.calls.where((call) => call.type == 'noteOff'), [
+      const _EngineCall.noteOff(channel: 0, note: 60),
+    ]);
+
+    player.dispose();
+  });
+
   testWidgets('静音轨道不会分发 NoteOn', (tester) async {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);
@@ -152,6 +333,88 @@ void main() {
     await tester.pump(const Duration(milliseconds: 6));
 
     expect(engine.calls.where((call) => call.type == 'noteOn'), isEmpty);
+
+    player.dispose();
+  });
+
+  testWidgets('轨道静音按 track.index 而不是列表位置查找', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [_track(index: 4), _track(index: 9)],
+        timeline: [
+          _noteOn(trackIndex: 9, channel: 0, note: 60, velocity: 100, time: 0),
+        ],
+      ),
+    );
+    player.toggleTrackMute(9);
+    engine.clear();
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+
+    expect(engine.calls.where((call) => call.type == 'noteOn'), isEmpty);
+
+    player.dispose();
+  });
+
+  testWidgets('静音期间仍会应用 Program Change', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+        ],
+        timeline: [
+          _programChange(trackIndex: 0, channel: 0, program: 40, time: 0),
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+        ],
+      ),
+    );
+    player.toggleTrackMute(0);
+    engine.clear();
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+
+    expect(engine.calls.where((call) => call.type == 'setInstrument'), [
+      const _EngineCall.setInstrument(channel: 0, program: 40),
+    ]);
+    expect(engine.calls.where((call) => call.type == 'noteOn'), isEmpty);
+
+    player.dispose();
+  });
+
+  testWidgets('静音轨道未发出的 NoteOn 不会在共享 channel 时发送 NoteOff', (
+    tester,
+  ) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+          _track(index: 1, channels: {0}),
+        ],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOn(trackIndex: 1, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOff(trackIndex: 0, channel: 0, note: 60, time: 0.1),
+        ],
+      ),
+    );
+    player.toggleTrackMute(0);
+    engine.clear();
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(engine.calls.where((call) => call.type == 'noteOn'), [
+      const _EngineCall.noteOn(channel: 0, note: 60, velocity: 100),
+    ]);
+    expect(engine.calls.where((call) => call.type == 'noteOff'), isEmpty);
 
     player.dispose();
   });
@@ -178,6 +441,34 @@ void main() {
     player.toggleTrackMute(0);
 
     expect(engine.calls.where((call) => call.type == 'noteOff'), [
+      const _EngineCall.noteOff(channel: 0, note: 60),
+    ]);
+
+    player.dispose();
+  });
+
+  testWidgets('静音重叠的同音符时按活动次数发送 NoteOff', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+        ],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+        ],
+      ),
+    );
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+    engine.clear();
+
+    player.toggleTrackMute(0);
+
+    expect(engine.calls.where((call) => call.type == 'noteOff'), [
+      const _EngineCall.noteOff(channel: 0, note: 60),
       const _EngineCall.noteOff(channel: 0, note: 60),
     ]);
 
@@ -291,6 +582,22 @@ TimelineEvent _noteOff({
     trackIndex: trackIndex,
     data1: note,
     data2: 0,
+  );
+}
+
+TimelineEvent _programChange({
+  required int trackIndex,
+  required int channel,
+  required int program,
+  required double time,
+}) {
+  return TimelineEvent(
+    type: MidiEventType.programChange,
+    tick: (time * 960).round(),
+    time: time,
+    channel: channel,
+    trackIndex: trackIndex,
+    data1: program,
   );
 }
 
