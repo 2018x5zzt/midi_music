@@ -135,13 +135,13 @@ flutter test
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，共 76 用例)
+### Tests (`test/`，共 77 用例)
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~22 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
 - `midi_parse_test.dart` — 解析真实 MIDI 文件测试（1 用例）
 - `midi_regression_test.dart` — **MIDI 解析回归测试**（22 用例）：16 个合成 MIDI（Format 0/1、重叠音符、tempo/拍号、PPQ、边界）+ 6 个真实古典 MIDI（巴赫/莫扎特/肖邦/贝多芬，来自 BitMidi）
-- `follow_mode_controller_test.dart` — 跟随算法测试（9 用例，含 seek/currentTime 重对齐、seek 到长休止等待和连续未匹配重对齐请求）
+- `follow_mode_controller_test.dart` — 跟随算法测试（10 用例，含 seek/currentTime 重对齐、idle 恢复、seek 到长休止等待和连续未匹配重对齐请求）
 - `follow_mode_session_test.dart` — 跟随会话生命周期测试（9 用例，含长休止暂停恢复、按播放时间重对齐、seek 到长休止暂停等待、连续未匹配自动重对齐、dispose 回调清理）
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
 - `player_seek_widgets_test.dart` — 播放页 seek 控件合同测试（2 用例）

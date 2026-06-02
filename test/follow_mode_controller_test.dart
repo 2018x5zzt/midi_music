@@ -202,6 +202,41 @@ void main() {
     controller.dispose();
   });
 
+  test('idle 时按播放时间恢复不会被 start 重置到开头', () async {
+    final pitchInput = StreamController<PitchData>.broadcast();
+    final onsetDetector = OnsetDetector();
+    final controller = FollowModeController(
+      onsetDetector: onsetDetector,
+      config: const FollowModeConfig(
+        noteMatchTolerance: 0,
+        allowOctaveError: false,
+      ),
+    );
+    onsetDetector.attachPitchStream(pitchInput.stream);
+    controller.loadScore([
+      _note(60, start: 0, end: 0.2),
+      _note(61, start: 1, end: 1.2),
+      _note(62, start: 2, end: 2.2),
+      _note(63, start: 3, end: 3.2),
+      _note(64, start: 4, end: 4.2),
+      _note(65, start: 5, end: 5.2),
+    ]);
+
+    controller.resumeFromTime(5);
+
+    final start = DateTime(2026);
+    pitchInput.add(_pitch(65, start));
+    await pumpEventQueue();
+    pitchInput.add(_pitch(66, start.add(const Duration(milliseconds: 120))));
+    await pumpEventQueue();
+
+    expect(controller.state, FollowModeState.idle);
+
+    await pitchInput.close();
+    onsetDetector.dispose();
+    controller.dispose();
+  });
+
   test('按超过曲尾的播放时间恢复会停止跟随', () async {
     final pitchInput = StreamController<PitchData>.broadcast();
     final onsetDetector = OnsetDetector();

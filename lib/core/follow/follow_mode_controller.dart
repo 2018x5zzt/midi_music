@@ -147,11 +147,7 @@ class FollowModeController {
   void start() {
     if (_scoreNotes.isEmpty) return;
 
-    _expectedNoteIndex = 0;
-    _speedFactor = 1.0;
-    _unmatchedCount = 0;
-    _lastOnsetTimestamp = null;
-    _lastMatchedNoteIndex = null;
+    _resetFollowPosition(0);
 
     _onsetSubscription?.cancel();
     _onsetSubscription = _onsetDetector.onsetStream.listen(_handleOnset);
@@ -176,15 +172,11 @@ class FollowModeController {
   /// 从指定音符索引恢复（用于 seek 后重新对齐）
   void resumeFromIndex(int noteIndex) {
     if (noteIndex < 0 || noteIndex >= _scoreNotes.length) return;
-    _expectedNoteIndex = noteIndex;
-    _unmatchedCount = 0;
-    _lastOnsetTimestamp = null;
-    _lastMatchedNoteIndex = null;
     if (_state == FollowModeState.idle) {
       start();
-    } else {
-      _setState(FollowModeState.following);
     }
+    _resetFollowPosition(noteIndex);
+    _setState(FollowModeState.following);
   }
 
   /// 从播放时间恢复（用于播放器 seek/currentTime 后重新对齐）
@@ -345,6 +337,13 @@ class FollowModeController {
       }
     }
     return null;
+  }
+
+  void _resetFollowPosition(int noteIndex) {
+    _expectedNoteIndex = noteIndex;
+    _unmatchedCount = 0;
+    _lastOnsetTimestamp = null;
+    _lastMatchedNoteIndex = null;
   }
 
   bool _isTimeInsideLongRestBefore(int noteIndex, double currentTimeSeconds) {
