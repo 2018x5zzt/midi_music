@@ -337,6 +337,27 @@ void main() {
     player.dispose();
   });
 
+  testWidgets('同步 NoteOn 失败不会把音符记录为活动音', (tester) async {
+    final engine = _FakeMidiPlaybackEngine()..throwSynchronouslyOnNoteOn = true;
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [_track(index: 0)],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOff(trackIndex: 0, channel: 0, note: 60, time: 0.01),
+        ],
+      ),
+    );
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(engine.calls.where((call) => call.type == 'noteOff'), isEmpty);
+
+    player.dispose();
+  });
+
   testWidgets('静音轨道不会分发 NoteOn', (tester) async {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);

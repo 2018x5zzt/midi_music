@@ -135,8 +135,8 @@ flutter test
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，共 77 用例)
-- `midi_player_controller_test.dart` — 播放控制器调度测试（~22 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文）
+### Tests (`test/`，共 78 用例)
+- `midi_player_controller_test.dart` — 播放控制器调度测试（~23 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
 - `midi_parse_test.dart` — 解析真实 MIDI 文件测试（1 用例）

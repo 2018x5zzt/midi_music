@@ -322,7 +322,7 @@ class MidiPlayerController extends ChangeNotifier {
         final vol = _getTrackVolume(event.trackIndex);
         final adjustedVelocity = (event.data2 * vol).round().clamp(0, 127);
         if (adjustedVelocity == 0) return;
-        _fireAndForget(
+        final noteOnStarted = _fireAndForget(
           () => _engine.noteOn(
             channel: event.channel,
             note: event.data1,
@@ -330,7 +330,9 @@ class MidiPlayerController extends ChangeNotifier {
           ),
           'NoteOn ch:${event.channel} note:${event.data1}',
         );
-        _rememberActiveNote(event);
+        if (noteOnStarted) {
+          _rememberActiveNote(event);
+        }
       case MidiEventType.noteOff:
         if (_releaseActiveNote(event)) {
           _fireAndForget(
@@ -352,15 +354,17 @@ class MidiPlayerController extends ChangeNotifier {
   }
 
   /// 不阻塞播放线程但失败时上报异常
-  void _fireAndForget(Future<void> Function() operation, String context) {
+  bool _fireAndForget(Future<void> Function() operation, String context) {
     try {
       unawaited(
         operation().catchError((Object error) {
           _reportError(error, context);
         }),
       );
+      return true;
     } catch (error) {
       _reportError(error, context);
+      return false;
     }
   }
 
