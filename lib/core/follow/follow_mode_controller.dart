@@ -100,6 +100,9 @@ class FollowModeController {
   /// 当前期望音符索引
   int _expectedNoteIndex = 0;
 
+  /// 上一次成功匹配的谱面音符索引
+  int? _lastMatchedNoteIndex;
+
   /// 上一次 onset 的时间戳
   DateTime? _lastOnsetTimestamp;
 
@@ -144,6 +147,7 @@ class FollowModeController {
     _speedFactor = 1.0;
     _unmatchedCount = 0;
     _lastOnsetTimestamp = null;
+    _lastMatchedNoteIndex = null;
 
     _onsetSubscription?.cancel();
     _onsetSubscription = _onsetDetector.onsetStream.listen(_handleOnset);
@@ -156,6 +160,7 @@ class FollowModeController {
     _onsetSubscription?.cancel();
     _onsetSubscription = null;
     _speedFactor = 1.0;
+    _lastMatchedNoteIndex = null;
     if (notifyCallbacks) {
       _setState(FollowModeState.idle);
       onSpeedChanged?.call(1.0);
@@ -170,6 +175,7 @@ class FollowModeController {
     _expectedNoteIndex = noteIndex;
     _unmatchedCount = 0;
     _lastOnsetTimestamp = null;
+    _lastMatchedNoteIndex = null;
     if (_state == FollowModeState.idle) {
       start();
     } else {
@@ -201,6 +207,7 @@ class FollowModeController {
 
   /// 音符匹配成功
   void _onNoteMatched(OnsetEvent onset, MidiNote expectedNote) {
+    final matchedNoteIndex = _expectedNoteIndex;
     _unmatchedCount = 0;
 
     // 如果是从 WaitingForOnset 恢复，切回 Following
@@ -215,8 +222,8 @@ class FollowModeController {
           1000.0;
 
       // 期望间隔 = 当前音符 startTime - 上一个匹配音符 startTime
-      final prevIndex = _expectedNoteIndex - 1;
-      if (prevIndex >= 0 && actualInterval > 0.01) {
+      final prevIndex = _lastMatchedNoteIndex;
+      if (prevIndex != null && actualInterval > 0.01) {
         final expectedInterval =
             expectedNote.startTime - _scoreNotes[prevIndex].startTime;
 
@@ -228,6 +235,7 @@ class FollowModeController {
     }
 
     _lastOnsetTimestamp = onset.timestamp;
+    _lastMatchedNoteIndex = matchedNoteIndex;
     _expectedNoteIndex++;
 
     // 检查下一个音符是否为休止符（间隔大）
