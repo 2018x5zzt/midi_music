@@ -104,9 +104,32 @@ class _PlayerBodyState extends State<_PlayerBody> {
   FollowModeState _followState = FollowModeState.idle;
   double _followSpeedFactor = 1.0;
   int? _melodyTrackIndex;
+  String? _playbackError;
+  Timer? _errorDismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.player.onPlaybackError = _onPlaybackError;
+  }
+
+  void _onPlaybackError(Object error, String context) {
+    if (!mounted) return;
+    _errorDismissTimer?.cancel();
+    setState(() => _playbackError = '播放异常：$context');
+    _errorDismissTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) {
+        setState(() => _playbackError = null);
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _errorDismissTimer?.cancel();
+    if (widget.player.onPlaybackError == _onPlaybackError) {
+      widget.player.onPlaybackError = null;
+    }
     unawaited(_releaseFollowResources().catchError((Object _) {}));
     super.dispose();
   }
@@ -277,6 +300,10 @@ class _PlayerBodyState extends State<_PlayerBody> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_playbackError != null) ...[
+            _ErrorBanner(message: _playbackError!),
+            const SizedBox(height: 10),
+          ],
           if (!player.isSoundfontReady) ...[
             SoundfontBanner(player: player),
             const SizedBox(height: 14),
@@ -301,6 +328,45 @@ class _PlayerBodyState extends State<_PlayerBody> {
             player: player,
             melodyTrackIndex: _melodyTrackIndex,
             onSetMelody: _setMelodyTrack,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  final String message;
+
+  const _ErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: LuxuryPalette.ruby.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: LuxuryPalette.ruby.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            CupertinoIcons.exclamationmark_triangle_fill,
+            size: 16,
+            color: LuxuryPalette.ruby,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                color: LuxuryPalette.textPrimary,
+              ),
+            ),
           ),
         ],
       ),

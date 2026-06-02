@@ -13,12 +13,18 @@ enum PlaybackState { stopped, playing, paused }
 enum SoundfontSetupState { idle, checking, downloading, ready, failed }
 
 const _kDefaultSoundfontFileName = 'TimGM6mb.sf2';
+
+/// UI 刷新节流：内部调度是 5ms（200Hz），但 ChangeNotifier 通知
+/// 降到约 30Hz，避免不必要的 Widget rebuild。
 const _kPlaybackUiNotifyInterval = Duration(milliseconds: 33);
 const _kDefaultSoundfontUrls = [
   'https://cdn.jsdelivr.net/gh/arbruijn/TimGM6mb@master/TimGM6mb.sf2',
   'https://raw.githubusercontent.com/arbruijn/TimGM6mb/master/TimGM6mb.sf2',
   'https://sourceforge.net/projects/mscore/files/soundfont/TimGM6mb.sf2/download',
 ];
+
+/// 播放异常回调：引擎操作失败时触发，UI 可据此展示轻量提示
+typedef PlaybackErrorCallback = void Function(Object error, String context);
 
 /// MIDI 播放控制器
 ///
@@ -28,6 +34,9 @@ class MidiPlayerController extends ChangeNotifier {
   final MidiPlaybackEngine _engine;
   final Future<File> Function()? _soundfontFileProvider;
   final Future<void> Function(File targetFile)? _soundfontDownloader;
+
+  /// 播放过程中的异常回调（可选），例如引擎 noteOn 失败
+  PlaybackErrorCallback? onPlaybackError;
   MidiSongData? _songData;
   TempoMap? _tempoMap;
 
@@ -273,7 +282,12 @@ class MidiPlayerController extends ChangeNotifier {
     }
 
     // 触发当前时间之前的所有事件
-    _processEvents();
+    try {
+      _processEvents();
+    } catch (error) {
+      _reportError(error, '调度事件时发生异常');
+      // 即使单个事件出错，播放继续推进
+    }
     _notifyPlaybackUiIfNeeded(now);
   }
 
@@ -308,25 +322,48 @@ class MidiPlayerController extends ChangeNotifier {
         final vol = _getTrackVolume(event.trackIndex);
         final adjustedVelocity = (event.data2 * vol).round().clamp(0, 127);
         if (adjustedVelocity == 0) return;
-        unawaited(
-          _engine.noteOn(
+        _fireAndForget(
+          () => _engine.noteOn(
             channel: event.channel,
             note: event.data1,
             velocity: adjustedVelocity,
           ),
+          'NoteOn ch:${event.channel} note:${event.data1}',
         );
         _rememberActiveNote(event);
       case MidiEventType.noteOff:
         if (_releaseActiveNote(event)) {
-          unawaited(_engine.noteOff(channel: event.channel, note: event.data1));
+          _fireAndForget(
+            () => _engine.noteOff(channel: event.channel, note: event.data1),
+            'NoteOff ch:${event.channel} note:${event.data1}',
+          );
         }
       case MidiEventType.programChange:
-        unawaited(
-          _engine.setInstrument(channel: event.channel, program: event.data1),
+        _fireAndForget(
+          () => _engine.setInstrument(
+            channel: event.channel,
+            program: event.data1,
+          ),
+          'ProgramChange ch:${event.channel} prog:${event.data1}',
         );
       default:
         break;
     }
+  }
+
+  /// 不阻塞播放线程但失败时上报异常
+  void _fireAndForget(
+    Future<void> Function() operation,
+    String context,
+  ) {
+    unawaited(operation().catchError((Object error) {
+      _reportError(error, context);
+    }));
+  }
+
+  /// 报告异常到外部回调
+  void _reportError(Object error, String context) {
+    onPlaybackError?.call(error, context);
   }
 
   /// 检查轨道是否被静音（按 trackIndex 而非 channel）
@@ -371,8 +408,12 @@ class MidiPlayerController extends ChangeNotifier {
     if (_songData == null) return;
     for (final track in _songData!.tracks) {
       for (final entry in track.programByChannel.entries) {
-        unawaited(
-          _engine.setInstrument(channel: entry.key, program: entry.value),
+        _fireAndForget(
+          () => _engine.setInstrument(
+            channel: entry.key,
+            program: entry.value,
+          ),
+          'InitInstrument ch:${entry.key} prog:${entry.value}',
         );
       }
     }
@@ -402,8 +443,12 @@ class MidiPlayerController extends ChangeNotifier {
     }
 
     for (final entry in programByChannel.entries) {
-      unawaited(
-        _engine.setInstrument(channel: entry.key, program: entry.value),
+      _fireAndForget(
+        () => _engine.setInstrument(
+          channel: entry.key,
+          program: entry.value,
+        ),
+        'ProgramApply ch:${entry.key} prog:${entry.value}',
       );
     }
   }
@@ -444,8 +489,13 @@ class MidiPlayerController extends ChangeNotifier {
 
     for (final entry in notesForTrack.entries) {
       for (var i = 0; i < entry.value; i++) {
-        unawaited(
-          _engine.noteOff(channel: entry.key.channel, note: entry.key.note),
+        _fireAndForget(
+          () => _engine.noteOff(
+            channel: entry.key.channel,
+            note: entry.key.note,
+          ),
+          'StopNote trk:$trackIndex ch:${entry.key.channel}'
+          ' note:${entry.key.note}',
         );
       }
     }
