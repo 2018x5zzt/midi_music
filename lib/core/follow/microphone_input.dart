@@ -8,15 +8,58 @@ import 'package:pitch_detector_dart/pitch_detector.dart';
 import 'onset_detector.dart';
 import 'pitch_input.dart';
 
-class MicrophoneInput implements PitchInput {
+abstract class AudioCaptureAdapter {
+  Future<bool?> init();
+  Future<void> start(
+    void Function(Float32List audioData) listener,
+    void Function(Object error) onError, {
+    required int sampleRate,
+    required int bufferSize,
+    required bool waitForFirstDataOnIOS,
+  });
+  Future<void> stop();
+}
+
+class FlutterAudioCaptureAdapter implements AudioCaptureAdapter {
   final FlutterAudioCapture _audioCapture = FlutterAudioCapture();
+
+  @override
+  Future<bool?> init() => _audioCapture.init();
+
+  @override
+  Future<void> start(
+    void Function(Float32List audioData) listener,
+    void Function(Object error) onError, {
+    required int sampleRate,
+    required int bufferSize,
+    required bool waitForFirstDataOnIOS,
+  }) {
+    return _audioCapture.start(
+      listener,
+      onError,
+      sampleRate: sampleRate,
+      bufferSize: bufferSize,
+      waitForFirstDataOnIOS: waitForFirstDataOnIOS,
+    );
+  }
+
+  @override
+  Future<void> stop() => _audioCapture.stop();
+}
+
+class MicrophoneInput implements PitchInput {
+  final AudioCaptureAdapter _audioCapture;
   final _pitchController = StreamController<PitchData>.broadcast();
 
   PitchDetector? _pitchDetector;
   Float64List? _sampleBuffer;
   bool _isListening = false;
   bool _isProcessingBuffer = false;
+  bool _isDisposed = false;
   double _minPrecision = 0.7;
+
+  MicrophoneInput({AudioCaptureAdapter? audioCapture})
+    : _audioCapture = audioCapture ?? FlutterAudioCaptureAdapter();
 
   bool get isListening => _isListening;
   @override
@@ -28,9 +71,13 @@ class MicrophoneInput implements PitchInput {
     int bufferSize = 8192,
     double minPrecision = 0.7,
   }) async {
+    if (_isDisposed) {
+      throw StateError('麦克风输入已经释放');
+    }
     if (_isListening) return;
 
     final initialized = await _audioCapture.init();
+    if (_isDisposed) return;
     if (initialized != true) {
       throw Exception('麦克风初始化失败');
     }
@@ -40,27 +87,31 @@ class MicrophoneInput implements PitchInput {
       bufferSize: bufferSize,
     );
     _minPrecision = minPrecision;
-
-    await _audioCapture.start(
-      _onAudioData,
-      (Object error) {
-        if (_pitchController.isClosed) return;
-        _pitchController.addError(error);
-      },
-      sampleRate: sampleRate,
-      bufferSize: bufferSize,
-      waitForFirstDataOnIOS: false,
-    );
-
     _isListening = true;
+
+    try {
+      await _audioCapture.start(
+        _onAudioData,
+        (Object error) {
+          if (_pitchController.isClosed || _isDisposed) return;
+          _pitchController.addError(error);
+        },
+        sampleRate: sampleRate,
+        bufferSize: bufferSize,
+        waitForFirstDataOnIOS: false,
+      );
+    } catch (_) {
+      _isListening = false;
+      rethrow;
+    }
   }
 
   Future<void> stop() async {
     if (!_isListening) return;
 
-    await _audioCapture.stop();
     _isListening = false;
     _isProcessingBuffer = false;
+    await _audioCapture.stop();
   }
 
   void _onAudioData(Float32List audioData) {
@@ -102,6 +153,7 @@ class MicrophoneInput implements PitchInput {
       final midiNote = hasPitch ? _frequencyToMidi(result.pitch) : -1;
       final precision = _clamp01(result.probability);
 
+      if (_pitchController.isClosed || _isDisposed || !_isListening) return;
       _pitchController.add(
         PitchData(
           frequency: frequency,
@@ -182,6 +234,8 @@ class MicrophoneInput implements PitchInput {
 
   @override
   Future<void> dispose() async {
+    if (_isDisposed) return;
+    _isDisposed = true;
     await stop();
     _sampleBuffer = null;
     await _pitchController.close();
