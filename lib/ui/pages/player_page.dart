@@ -676,9 +676,9 @@ class _PerformanceConsole extends StatelessWidget {
         children: [
           Row(
             children: [
-              Column(
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   _SectionEyebrow(label: 'PERFORMANCE'),
                   SizedBox(height: 10),
                 ],
@@ -833,9 +833,9 @@ class _TrackSalon extends StatelessWidget {
         children: [
           Row(
             children: [
-              Column(
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   _SectionEyebrow(label: 'TRACK SALON'),
                   SizedBox(height: 10),
                 ],

@@ -18,7 +18,8 @@
 | Cupertino Widgets | iOS 风格 UI |
 | flutter_midi_pro | MIDI 引擎（FluidSynth/AVFoundation） |
 | dart_midi_pro | MIDI 文件解析 |
-| flutter_pitch_detection | 麦克风音频输入（onset detection） |
+| flutter_audio_capture | 麦克风音频输入 |
+| pitch_detector_dart | YIN 音高检测 |
 | permission_handler | 权限管理 |
 | Provider | 状态管理 |
 
@@ -35,17 +36,29 @@ lib/
 │   │   ├── midi_player.dart           # 播放控制器
 │   │   └── tempo_map.dart             # 速度映射
 │   └── follow/
+│       ├── pitch_input.dart           # 音高输入抽象
 │       ├── microphone_input.dart      # 麦克风音频输入
 │       ├── onset_detector.dart        # 音符起始检测
-│       └── follow_mode_controller.dart # 变速跟随状态机
+│       ├── follow_mode_controller.dart # 变速跟随状态机
+│       ├── follow_mode_session.dart   # 跟随模式生命周期协调
+│       └── follow_playback_target.dart # 跟随播放目标抽象
 ├── models/
 │   └── midi_track.dart                # MIDI 轨道模型
 └── ui/
-    └── pages/
-        ├── home_page.dart             # 首页（文件选择）
-        └── player_page.dart           # 播放器页面
+    ├── pages/
+    │   ├── home_page.dart             # 首页（文件选择）
+    │   └── player_page.dart           # 播放器页面
+    └── theme/
+        └── luxury_theme.dart          # 黑金主题组件
 test/
-└── midi_parse_test.dart               # MIDI 解析验证脚本
+├── follow_mode_controller_test.dart
+├── follow_mode_session_test.dart
+├── microphone_input_test.dart
+├── midi_engine_test.dart
+├── midi_parse_test.dart
+├── midi_player_controller_test.dart
+├── midi_timeline_test.dart
+└── widget_test.dart
 assets/
 └── midi/
     └── Beethoven-Moonlight-Sonata.mid # 测试用 MIDI 文件
@@ -73,13 +86,16 @@ flutter pub get
 flutter run
 ```
 
+### 质量检查
+
+```bash
+flutter analyze
+flutter test
+```
+
 ### 准备资源文件
 
-App 需要 SoundFont 音色文件才能播放 MIDI：
-
-1. 下载一个 GM SoundFont 文件（推荐 [TimGM6mb.sf2](https://sourceforge.net/projects/mscore/files/soundfont/TimGM6mb/) ~6MB）
-2. 放入 `assets/soundfonts/` 目录
-3. 将 MIDI 测试文件放入 `assets/midi/` 目录（可选，App 也支持从设备文件系统选择）
+App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录，App 同时支持从设备文件系统选择 MIDI 文件。
 
 ### 打包 APK
 
@@ -101,7 +117,8 @@ flutter build apk --release
 
 1. **MicrophoneInput** — 采集麦克风音频流
 2. **OnsetDetector** — 纯 Dart 实现，检测音符起始时刻，输出 `Stream<OnsetEvent>`
-3. **FollowModeController** — 状态机（WaitingForOnset / Following），使用 EMA（指数移动平均，α=0.3）平滑速度因子
+3. **FollowModeController** — 状态机（idle / following / waitingForOnset），使用 EMA（指数移动平均，α=0.3）平滑速度因子
+4. **FollowModeSession** — 串联音高输入、onset 检测、跟随控制器和播放器目标，并处理 start/dispose 生命周期
 
 ### 使用方式
 

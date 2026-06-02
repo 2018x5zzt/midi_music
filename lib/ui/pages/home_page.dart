@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
@@ -38,9 +40,9 @@ class _HomePageState extends State<HomePage> {
       final player = context.read<MidiPlayerController>();
       player.loadSong(songData);
 
-      Navigator.of(
+      unawaited(Navigator.of(
         context,
-      ).push(CupertinoPageRoute(builder: (_) => const PlayerPage()));
+      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
     } catch (e) {
       if (!mounted) return;
       _showError('无法解析 MIDI 文件: $e');
@@ -68,9 +70,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openPlayer() {
-    Navigator.of(
+    unawaited(Navigator.of(
       context,
-    ).push(CupertinoPageRoute(builder: (_) => const PlayerPage()));
+    ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
   }
 
   @override
@@ -192,11 +194,11 @@ class _HeaderBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return const Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          children: const [
+          children: [
             Text(
               'NOCTURNE EDITION',
               style: TextStyle(
@@ -533,11 +535,11 @@ class _BottomFeatureStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LuxuryPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+    return const LuxuryPanel(
+      padding: EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: const [
+        children: [
           _ValueItem(title: '导入', subtitle: 'MIDI'),
           _ValueItem(title: '控制', subtitle: '轨道'),
           _ValueItem(title: '跟随', subtitle: '实时'),

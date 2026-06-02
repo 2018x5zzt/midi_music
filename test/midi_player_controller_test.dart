@@ -90,8 +90,8 @@ void main() {
     );
 
     expect(engine.calls.where((call) => call.type == 'setInstrument'), [
-      _EngineCall.setInstrument(channel: 0, program: 40),
-      _EngineCall.setInstrument(channel: 3, program: 12),
+      const _EngineCall.setInstrument(channel: 0, program: 40),
+      const _EngineCall.setInstrument(channel: 3, program: 12),
     ]);
 
     player.dispose();
@@ -126,7 +126,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 6));
 
     expect(engine.calls.where((call) => call.type == 'noteOn'), [
-      _EngineCall.noteOn(channel: 0, note: 60, velocity: 50),
+      const _EngineCall.noteOn(channel: 0, note: 60, velocity: 50),
     ]);
 
     player.dispose();
@@ -178,7 +178,7 @@ void main() {
     player.toggleTrackMute(0);
 
     expect(engine.calls.where((call) => call.type == 'noteOff'), [
-      _EngineCall.noteOff(channel: 0, note: 60),
+      const _EngineCall.noteOff(channel: 0, note: 60),
     ]);
 
     player.dispose();

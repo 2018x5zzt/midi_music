@@ -9,6 +9,7 @@ build/
 *.iml
 .idea/
 .vscode/
+*.code-workspace
 
 # macOS
 .DS_Store
@@ -16,6 +17,3 @@ build/
 
 # Spec workflow (AI tooling)
 .spec-workflow/
-
-# Pub
-pubspec.lock
