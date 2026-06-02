@@ -30,6 +30,8 @@ class FollowModeSession {
 
   bool _disposed = false;
   bool _started = false;
+  bool _starting = false;
+  Future<void>? _startFuture;
   FollowModeState _state = FollowModeState.idle;
   double _speedFactor = 1.0;
 
@@ -107,9 +109,27 @@ class FollowModeSession {
       throw StateError('跟随模式会话已经释放');
     }
     if (_started) return;
+    final activeStart = _startFuture;
+    if (activeStart != null) {
+      await activeStart;
+      return;
+    }
     if (_melodyTrack.notes.isEmpty) {
       throw StateError('主旋律轨道没有可跟随的音符');
     }
+
+    late final Future<void> startFuture;
+    startFuture = _start().whenComplete(() {
+      if (_startFuture == startFuture) {
+        _startFuture = null;
+      }
+    });
+    _startFuture = startFuture;
+    await startFuture;
+  }
+
+  Future<void> _start() async {
+    _starting = true;
 
     _followController.onSpeedChanged = _handleSpeedChanged;
     _followController.onStateChanged = _handleStateChanged;
@@ -122,12 +142,15 @@ class FollowModeSession {
         bufferSize: _config.bufferSize,
         minPrecision: _config.minPrecision,
       );
+      if (_disposed) return;
 
       if (!_playbackTarget.isPlaying) {
         await _playbackTarget.play();
       }
+      if (_disposed) return;
 
       _followController.start();
+      if (_disposed) return;
       if (!_followController.isActive) {
         throw StateError('跟随模式启动失败');
       }
@@ -135,6 +158,8 @@ class FollowModeSession {
     } catch (_) {
       await dispose(resetPlayerSpeed: false);
       rethrow;
+    } finally {
+      _starting = false;
     }
   }
 
@@ -146,6 +171,10 @@ class FollowModeSession {
     _followController.stop(notifyCallbacks: false);
     _onsetDetector.detach();
     await _pitchInput.dispose();
+    final activeStart = _startFuture;
+    if (_starting && activeStart != null) {
+      await activeStart;
+    }
     _followController.dispose();
     _onsetDetector.dispose();
 
@@ -157,12 +186,14 @@ class FollowModeSession {
   }
 
   void _handleSpeedChanged(double speedFactor) {
+    if (_disposed) return;
     _speedFactor = speedFactor;
     unawaited(_playbackTarget.setSpeed(speedFactor));
     onSpeedChanged?.call(speedFactor);
   }
 
   void _handleStateChanged(FollowModeState state) {
+    if (_disposed) return;
     _state = state;
     switch (state) {
       case FollowModeState.idle:

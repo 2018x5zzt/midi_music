@@ -89,6 +89,61 @@ void main() {
     expect(playbackTarget.speed, 1.0);
   });
 
+  test('并发 start 只启动一次 pitch 输入', () async {
+    final startGate = Completer<void>();
+    final pitchInput = _FakePitchInput(startGate: startGate);
+    final playbackTarget = _FakePlaybackTarget();
+    final session = FollowModeSession(
+      playbackTarget: playbackTarget,
+      melodyTrack: _melodyTrack(),
+      pitchInput: pitchInput,
+    );
+
+    final firstStart = session.start();
+    await pumpEventQueue();
+    final secondStart = session.start();
+    await pumpEventQueue();
+
+    expect(pitchInput.startCount, 1);
+    expect(playbackTarget.playCount, 0);
+
+    startGate.complete();
+    await Future.wait([firstStart, secondStart]);
+
+    expect(pitchInput.startCount, 1);
+    expect(playbackTarget.playCount, 1);
+    expect(session.isActive, isTrue);
+
+    await session.dispose();
+  });
+
+  test('dispose 可以安全打断尚未完成的 start', () async {
+    final startGate = Completer<void>();
+    final pitchInput = _FakePitchInput(startGate: startGate);
+    final playbackTarget = _FakePlaybackTarget();
+    final session = FollowModeSession(
+      playbackTarget: playbackTarget,
+      melodyTrack: _melodyTrack(),
+      pitchInput: pitchInput,
+    );
+
+    final startFuture = session.start();
+    await pumpEventQueue();
+
+    final disposeFuture = session.dispose();
+    await pumpEventQueue();
+
+    expect(pitchInput.disposed, isTrue);
+    expect(playbackTarget.playCount, 0);
+
+    startGate.complete();
+    await Future.wait([startFuture, disposeFuture]);
+
+    expect(playbackTarget.playCount, 0);
+    expect(session.state, FollowModeState.idle);
+    expect(session.isActive, isFalse);
+  });
+
   test('遇到长休止时暂停播放，下一次 onset 后恢复', () async {
     final pitchInput = _FakePitchInput();
     final playbackTarget = _FakePlaybackTarget();
@@ -146,6 +201,32 @@ void main() {
   });
 }
 
+MidiTrackInfo _melodyTrack() {
+  return MidiTrackInfo(
+    index: 0,
+    notes: [
+      MidiNote(
+        noteNumber: 60,
+        velocity: 80,
+        channel: 0,
+        startTick: 0,
+        endTick: 240,
+        startTime: 0,
+        endTime: 0.5,
+      ),
+      MidiNote(
+        noteNumber: 62,
+        velocity: 80,
+        channel: 0,
+        startTick: 480,
+        endTick: 720,
+        startTime: 1,
+        endTime: 1.5,
+      ),
+    ],
+  );
+}
+
 PitchData _pitchData({required int midiNote, required DateTime timestamp}) {
   return PitchData(
     frequency: 440,
@@ -161,8 +242,12 @@ PitchData _pitchData({required int midiNote, required DateTime timestamp}) {
 
 class _FakePitchInput implements PitchInput {
   final _controller = StreamController<PitchData>.broadcast();
+  final Completer<void>? startGate;
   bool started = false;
   bool disposed = false;
+  int startCount = 0;
+
+  _FakePitchInput({this.startGate});
 
   @override
   Stream<PitchData> get pitchStream => _controller.stream;
@@ -173,7 +258,9 @@ class _FakePitchInput implements PitchInput {
     int bufferSize = 8192,
     double minPrecision = 0.7,
   }) async {
+    startCount++;
     started = true;
+    await startGate?.future;
   }
 
   void emit(PitchData data) {
