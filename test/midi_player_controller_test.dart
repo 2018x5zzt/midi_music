@@ -1,9 +1,81 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/midi/midi_engine.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/models/midi_track.dart';
 
 void main() {
+  test('重复准备音色时等待同一个下载任务', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'midi-player-sf2-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final soundfontFile = File('${tempDir.path}/test.sf2');
+    final engine = _FakeMidiPlaybackEngine(ready: false);
+    final downloadStarted = Completer<void>();
+    final downloadGate = Completer<void>();
+    var fileProviderCalls = 0;
+    var downloadCalls = 0;
+    final player = MidiPlayerController(
+      engine: engine,
+      soundfontFileProvider: () async {
+        fileProviderCalls++;
+        return soundfontFile;
+      },
+      soundfontDownloader: (targetFile) async {
+        downloadCalls++;
+        if (!downloadStarted.isCompleted) {
+          downloadStarted.complete();
+        }
+        await downloadGate.future;
+        await targetFile.writeAsBytes([1]);
+      },
+    );
+
+    final firstSetup = player.ensureSoundfontReady();
+    await downloadStarted.future;
+    final secondSetup = player.ensureSoundfontReady();
+    await pumpEventQueue();
+
+    expect(fileProviderCalls, 1);
+    expect(downloadCalls, 1);
+
+    downloadGate.complete();
+    await Future.wait([firstSetup, secondSetup]);
+
+    expect(player.soundfontState, SoundfontSetupState.ready);
+    expect(engine.calls.where((call) => call.type == 'loadFile'), [
+      _EngineCall.loadFile(soundfontFile.path),
+    ]);
+
+    player.dispose();
+  });
+
+  test('释放后完成的音色加载不会通知监听器', () async {
+    final engine = _FakeMidiPlaybackEngine(ready: false);
+    final loadGate = Completer<void>();
+    engine.loadAssetGate = loadGate;
+    final player = MidiPlayerController(engine: engine);
+    var notifyCount = 0;
+    player.addListener(() => notifyCount++);
+
+    final loadFuture = player.loadSoundfont('test.sf2');
+    await pumpEventQueue();
+    player.dispose();
+    loadGate.complete();
+
+    await loadFuture;
+
+    expect(notifyCount, 0);
+  });
+
   test('加载歌曲时发送每个轨道的初始乐器设置', () {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);
@@ -154,7 +226,10 @@ TimelineEvent _noteOn({
 
 class _FakeMidiPlaybackEngine implements MidiPlaybackEngine {
   final calls = <_EngineCall>[];
-  bool ready = true;
+  bool ready;
+  Completer<void>? loadAssetGate;
+
+  _FakeMidiPlaybackEngine({this.ready = true});
 
   @override
   bool get isReady => ready;
@@ -163,6 +238,7 @@ class _FakeMidiPlaybackEngine implements MidiPlaybackEngine {
 
   @override
   Future<void> loadSoundfontFromAsset(String assetPath) async {
+    await loadAssetGate?.future;
     ready = true;
     calls.add(_EngineCall.loadAsset(assetPath));
   }

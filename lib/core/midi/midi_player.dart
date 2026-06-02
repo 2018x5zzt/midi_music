@@ -26,6 +26,8 @@ const _kDefaultSoundfontUrls = [
 /// 支持播放/暂停/停止/跳转/变速。
 class MidiPlayerController extends ChangeNotifier {
   final MidiPlaybackEngine _engine;
+  final Future<File> Function()? _soundfontFileProvider;
+  final Future<void> Function(File targetFile)? _soundfontDownloader;
   MidiSongData? _songData;
   TempoMap? _tempoMap;
 
@@ -38,10 +40,17 @@ class MidiPlayerController extends ChangeNotifier {
   Timer? _ticker;
   DateTime? _lastTickTime;
   DateTime? _lastPlaybackUiNotifyTime;
+  Future<void>? _soundfontSetupFuture;
   String? _soundfontErrorMessage;
+  bool _isDisposed = false;
 
-  MidiPlayerController({MidiPlaybackEngine? engine})
-    : _engine = engine ?? MidiEngine();
+  MidiPlayerController({
+    MidiPlaybackEngine? engine,
+    Future<File> Function()? soundfontFileProvider,
+    Future<void> Function(File targetFile)? soundfontDownloader,
+  }) : _engine = engine ?? MidiEngine(),
+       _soundfontFileProvider = soundfontFileProvider,
+       _soundfontDownloader = soundfontDownloader;
 
   // Getters
   PlaybackState get state => _state;
@@ -76,29 +85,49 @@ class MidiPlayerController extends ChangeNotifier {
 
   /// 加载 SoundFont
   Future<void> loadSoundfont(String assetPath) async {
+    if (_isDisposed) return;
     await _engine.loadSoundfontFromAsset(assetPath);
+    if (_isDisposed) return;
     _soundfontState = SoundfontSetupState.ready;
     _soundfontDownloadProgress = 1.0;
     _soundfontErrorMessage = null;
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   Future<void> ensureSoundfontReady() async {
-    if (_engine.isReady ||
-        _soundfontState == SoundfontSetupState.checking ||
-        _soundfontState == SoundfontSetupState.downloading) {
+    if (_isDisposed || _engine.isReady) {
       return;
     }
 
+    final activeSetup = _soundfontSetupFuture;
+    if (activeSetup != null) {
+      await activeSetup;
+      return;
+    }
+
+    late final Future<void> setupFuture;
+    setupFuture = _runSoundfontSetup().whenComplete(() {
+      if (_soundfontSetupFuture == setupFuture) {
+        _soundfontSetupFuture = null;
+      }
+    });
+    _soundfontSetupFuture = setupFuture;
+    await setupFuture;
+  }
+
+  Future<void> _runSoundfontSetup() async {
     _soundfontState = SoundfontSetupState.checking;
     _soundfontDownloadProgress = 0.0;
     _soundfontErrorMessage = null;
-    notifyListeners();
+    _notifyListenersIfActive();
 
     try {
-      final soundfontFile = await _getSoundfontFile();
+      final soundfontFile = await _resolveSoundfontFile();
+      if (_isDisposed) return;
+
       final cachedFileIsUsable =
           await soundfontFile.exists() && await soundfontFile.length() > 0;
+      if (_isDisposed) return;
 
       if (cachedFileIsUsable) {
         try {
@@ -109,12 +138,14 @@ class MidiPlayerController extends ChangeNotifier {
         }
       }
 
-      await _downloadSoundfont(soundfontFile);
+      await _downloadConfiguredSoundfont(soundfontFile);
+      if (_isDisposed) return;
       await _loadDownloadedSoundfont(soundfontFile);
     } catch (e) {
+      if (_isDisposed) return;
       _soundfontState = SoundfontSetupState.failed;
       _soundfontErrorMessage = _describeSoundfontError(e);
-      notifyListeners();
+      _notifyListenersIfActive();
     }
   }
 
@@ -124,6 +155,7 @@ class MidiPlayerController extends ChangeNotifier {
 
   /// 加载歌曲数据
   void loadSong(MidiSongData song) {
+    if (_isDisposed) return;
     stop();
     _songData = song;
     _tempoMap = TempoMap(
@@ -132,11 +164,12 @@ class MidiPlayerController extends ChangeNotifier {
     );
     // 为每个轨道的乐器设置 program change
     _setupInstruments();
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 播放
   void play() {
+    if (_isDisposed) return;
     if (_songData == null || !_engine.isReady) return;
     if (_state == PlaybackState.playing) return;
 
@@ -146,22 +179,24 @@ class MidiPlayerController extends ChangeNotifier {
 
     // 启动定时器，约 5ms 精度
     _ticker = Timer.periodic(const Duration(milliseconds: 5), (_) => _onTick());
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 暂停
   void pause() {
+    if (_isDisposed) return;
     if (_state != PlaybackState.playing) return;
     _state = PlaybackState.paused;
     _ticker?.cancel();
     _ticker = null;
     _lastPlaybackUiNotifyTime = null;
     unawaited(_engine.allNotesOff());
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 停止
   void stop() {
+    if (_isDisposed) return;
     _state = PlaybackState.stopped;
     _ticker?.cancel();
     _ticker = null;
@@ -169,11 +204,12 @@ class MidiPlayerController extends ChangeNotifier {
     _currentTime = 0.0;
     _currentEventIndex = 0;
     unawaited(_engine.allNotesOff());
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 跳转到指定时间（秒）
   void seekTo(double seconds) {
+    if (_isDisposed) return;
     final wasPlaying = isPlaying;
     if (wasPlaying) pause();
 
@@ -182,26 +218,29 @@ class MidiPlayerController extends ChangeNotifier {
     _updateEventIndex();
 
     if (wasPlaying) play();
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 设置播放速度 (0.25 - 4.0)
   void setSpeed(double speed) {
+    if (_isDisposed) return;
     _playbackSpeed = speed.clamp(0.25, 4.0);
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 设置轨道音量 (0.0 - 1.0)
   void setTrackVolume(int trackIndex, double volume) {
+    if (_isDisposed) return;
     if (_songData == null) return;
     if (trackIndex < 0) return;
     if (trackIndex >= _songData!.tracks.length) return;
     _songData!.tracks[trackIndex].volume = volume.clamp(0.0, 1.0);
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 切换轨道静音
   void toggleTrackMute(int trackIndex) {
+    if (_isDisposed) return;
     if (_songData == null) return;
     if (trackIndex < 0) return;
     if (trackIndex >= _songData!.tracks.length) return;
@@ -215,7 +254,7 @@ class MidiPlayerController extends ChangeNotifier {
         }
       }
     }
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 定时器回调：推进时间并触发事件
@@ -259,7 +298,7 @@ class MidiPlayerController extends ChangeNotifier {
     }
 
     _lastPlaybackUiNotifyTime = now;
-    notifyListeners();
+    _notifyListenersIfActive();
   }
 
   /// 分发单个 MIDI 事件到引擎
@@ -334,9 +373,25 @@ class MidiPlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    stop();
+    if (_isDisposed) return;
+    _isDisposed = true;
+    _state = PlaybackState.stopped;
+    _ticker?.cancel();
+    _ticker = null;
+    _lastPlaybackUiNotifyTime = null;
+    _currentTime = 0.0;
+    _currentEventIndex = 0;
+    unawaited(_engine.allNotesOff());
     unawaited(_engine.dispose());
     super.dispose();
+  }
+
+  Future<File> _resolveSoundfontFile() async {
+    final provider = _soundfontFileProvider;
+    if (provider != null) {
+      return provider();
+    }
+    return _getSoundfontFile();
   }
 
   Future<File> _getSoundfontFile() async {
@@ -348,10 +403,23 @@ class MidiPlayerController extends ChangeNotifier {
     return File('${soundfontDirectory.path}/$_kDefaultSoundfontFileName');
   }
 
+  Future<void> _downloadConfiguredSoundfont(File targetFile) async {
+    final downloader = _soundfontDownloader;
+    if (downloader == null) {
+      await _downloadSoundfont(targetFile);
+      return;
+    }
+
+    _soundfontState = SoundfontSetupState.downloading;
+    _soundfontDownloadProgress = 0.0;
+    _notifyListenersIfActive();
+    await downloader(targetFile);
+  }
+
   Future<void> _downloadSoundfont(File targetFile) async {
     _soundfontState = SoundfontSetupState.downloading;
     _soundfontDownloadProgress = 0.0;
-    notifyListeners();
+    _notifyListenersIfActive();
 
     final tempFile = File('${targetFile.path}.download');
     Object? lastError;
@@ -384,7 +452,7 @@ class MidiPlayerController extends ChangeNotifier {
             receivedBytes += chunk.length;
             if (totalBytes > 0) {
               _soundfontDownloadProgress = receivedBytes / totalBytes;
-              notifyListeners();
+              _notifyListenersIfActive();
             }
           }
         } finally {
@@ -412,12 +480,18 @@ class MidiPlayerController extends ChangeNotifier {
 
   Future<void> _loadDownloadedSoundfont(File soundfontFile) async {
     await _engine.loadSoundfontFromFile(soundfontFile.path);
+    if (_isDisposed) return;
     _soundfontState = SoundfontSetupState.ready;
     _soundfontDownloadProgress = 1.0;
     _soundfontErrorMessage = null;
     if (_songData != null) {
       _setupInstruments();
     }
+    _notifyListenersIfActive();
+  }
+
+  void _notifyListenersIfActive() {
+    if (_isDisposed) return;
     notifyListeners();
   }
 
