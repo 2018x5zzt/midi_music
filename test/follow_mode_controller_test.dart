@@ -219,6 +219,26 @@ void main() {
     controller.dispose();
   });
 
+  test('按播放时间恢复到长休止中间时等待下一个 onset', () async {
+    final pitchInput = StreamController<PitchData>.broadcast();
+    final onsetDetector = OnsetDetector();
+    final controller = FollowModeController(onsetDetector: onsetDetector);
+    onsetDetector.attachPitchStream(pitchInput.stream);
+    controller.loadScore([
+      _note(60, start: 0, end: 0.2),
+      _note(62, start: 2, end: 2.2),
+    ]);
+    controller.start();
+
+    controller.resumeFromTime(1);
+
+    expect(controller.state, FollowModeState.waitingForOnset);
+
+    await pitchInput.close();
+    onsetDetector.dispose();
+    controller.dispose();
+  });
+
   test('连续未匹配达到阈值时请求外部重对齐', () async {
     final pitchInput = StreamController<PitchData>.broadcast();
     final onsetDetector = OnsetDetector();

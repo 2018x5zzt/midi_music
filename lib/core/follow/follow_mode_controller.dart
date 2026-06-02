@@ -196,6 +196,9 @@ class FollowModeController {
       return;
     }
     resumeFromIndex(noteIndex);
+    if (_isTimeInsideLongRestBefore(noteIndex, currentTimeSeconds)) {
+      _setState(FollowModeState.waitingForOnset);
+    }
   }
 
   // ============================================================
@@ -342,6 +345,18 @@ class FollowModeController {
       }
     }
     return null;
+  }
+
+  bool _isTimeInsideLongRestBefore(int noteIndex, double currentTimeSeconds) {
+    final nextNote = _scoreNotes[noteIndex];
+    if (currentTimeSeconds >= nextNote.startTime) {
+      return false;
+    }
+
+    final restStart = noteIndex == 0 ? 0.0 : _scoreNotes[noteIndex - 1].endTime;
+    final gap = nextNote.startTime - restStart;
+    return currentTimeSeconds >= restStart &&
+        gap >= _config.restThresholdSeconds;
   }
 
   /// EMA 平滑更新 speedFactor 并通知回调

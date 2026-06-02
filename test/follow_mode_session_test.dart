@@ -261,6 +261,29 @@ void main() {
     await session.dispose();
   });
 
+  test('按播放时间重对齐到长休止中间时暂停等待', () async {
+    final pitchInput = _FakePitchInput();
+    final playbackTarget = _FakePlaybackTarget();
+    final session = FollowModeSession(
+      playbackTarget: playbackTarget,
+      melodyTrack: MidiTrackInfo(
+        index: 0,
+        notes: [_note(60, start: 0, end: 0.2), _note(62, start: 2, end: 2.2)],
+      ),
+      pitchInput: pitchInput,
+    );
+
+    await session.start();
+    session.resumeFromTime(1);
+    await pumpEventQueue();
+
+    expect(session.state, FollowModeState.waitingForOnset);
+    expect(playbackTarget.isPlaying, isFalse);
+    expect(playbackTarget.pauseCount, 1);
+
+    await session.dispose();
+  });
+
   test('连续未匹配后按播放器当前时间自动重对齐', () async {
     final pitchInput = _FakePitchInput();
     final playbackTarget = _FakePlaybackTarget()..currentTime = 5;
