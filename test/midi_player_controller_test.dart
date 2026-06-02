@@ -358,6 +358,34 @@ void main() {
     player.dispose();
   });
 
+  testWidgets('异步 NoteOn 失败会清理已记录的活动音', (tester) async {
+    final engine = _FakeMidiPlaybackEngine()..failAsynchronouslyOnNoteOn = true;
+    final player = MidiPlayerController(engine: engine);
+    final errors = <String>[];
+    player.onPlaybackError = (error, context) {
+      errors.add('$context: $error');
+    };
+    player.loadSong(
+      _song(
+        tracks: [_track(index: 0)],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOff(trackIndex: 0, channel: 0, note: 60, time: 0.02),
+        ],
+      ),
+    );
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 10));
+    engine.clear();
+    await tester.pump(const Duration(milliseconds: 30));
+
+    expect(errors, ['NoteOn ch:0 note:60: Bad state: async noteOn failure']);
+    expect(engine.calls.where((call) => call.type == 'noteOff'), isEmpty);
+
+    player.dispose();
+  });
+
   testWidgets('静音轨道不会分发 NoteOn', (tester) async {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);
@@ -649,6 +677,7 @@ class _FakeMidiPlaybackEngine implements MidiPlaybackEngine {
   bool ready;
   Completer<void>? loadAssetGate;
   bool throwSynchronouslyOnNoteOn = false;
+  bool failAsynchronouslyOnNoteOn = false;
 
   _FakeMidiPlaybackEngine({this.ready = true});
 
@@ -691,6 +720,12 @@ class _FakeMidiPlaybackEngine implements MidiPlaybackEngine {
     calls.add(
       _EngineCall.noteOn(channel: channel, note: note, velocity: velocity),
     );
+    if (failAsynchronouslyOnNoteOn) {
+      return Future<void>.delayed(
+        const Duration(milliseconds: 1),
+        () => throw StateError('async noteOn failure'),
+      );
+    }
     return Future<void>.value();
   }
 

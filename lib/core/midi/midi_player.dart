@@ -329,6 +329,7 @@ class MidiPlayerController extends ChangeNotifier {
             velocity: adjustedVelocity,
           ),
           'NoteOn ch:${event.channel} note:${event.data1}',
+          onAsyncError: () => _releaseActiveNote(event),
         );
         if (noteOnStarted) {
           _rememberActiveNote(event);
@@ -354,10 +355,15 @@ class MidiPlayerController extends ChangeNotifier {
   }
 
   /// 不阻塞播放线程但失败时上报异常
-  bool _fireAndForget(Future<void> Function() operation, String context) {
+  bool _fireAndForget(
+    Future<void> Function() operation,
+    String context, {
+    VoidCallback? onAsyncError,
+  }) {
     try {
       unawaited(
         operation().catchError((Object error) {
+          onAsyncError?.call();
           _reportError(error, context);
         }),
       );
