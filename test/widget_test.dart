@@ -5,8 +5,9 @@ import 'package:midi_music/app.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 
 void main() {
-  testWidgets('App smoke test — renders without crashing',
-      (WidgetTester tester) async {
+  testWidgets('App smoke test — renders without crashing', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => MidiPlayerController(),

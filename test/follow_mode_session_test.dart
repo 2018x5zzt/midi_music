@@ -74,13 +74,13 @@ void main() {
     pitchInput.emit(
       _pitchData(
         midiNote: 62,
-        timestamp: start.add(const Duration(milliseconds: 500)),
+        timestamp: start.add(const Duration(milliseconds: 800)),
       ),
     );
     await pumpEventQueue();
 
-    expect(speeds.last, closeTo(1.3, 0.0001));
-    expect(playbackTarget.speed, closeTo(1.3, 0.0001));
+    expect(speeds.last, closeTo(1.075, 0.0001));
+    expect(playbackTarget.speed, closeTo(1.075, 0.0001));
 
     await session.dispose();
 

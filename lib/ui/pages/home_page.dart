@@ -38,11 +38,9 @@ class _HomePageState extends State<HomePage> {
       final player = context.read<MidiPlayerController>();
       player.loadSong(songData);
 
-      Navigator.of(context).push(
-        CupertinoPageRoute(
-          builder: (_) => const PlayerPage(),
-        ),
-      );
+      Navigator.of(
+        context,
+      ).push(CupertinoPageRoute(builder: (_) => const PlayerPage()));
     } catch (e) {
       if (!mounted) return;
       _showError('无法解析 MIDI 文件: $e');
@@ -70,11 +68,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openPlayer() {
-    Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) => const PlayerPage(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(CupertinoPageRoute(builder: (_) => const PlayerPage()));
   }
 
   @override
@@ -138,7 +134,9 @@ class _HomePageState extends State<HomePage> {
                               ],
                               if (player.songData != null) ...[
                                 const SizedBox(height: 14),
-                                _LoadedScoreLine(fileName: player.songData!.fileName),
+                                _LoadedScoreLine(
+                                  fileName: player.songData!.fileName,
+                                ),
                               ],
                               const SizedBox(height: 22),
                               _PrimaryActionButton(
@@ -160,7 +158,9 @@ class _HomePageState extends State<HomePage> {
                                   Expanded(
                                     child: _CompactMetric(
                                       label: '当前曲目',
-                                      value: player.songData == null ? '未载入' : '已就绪',
+                                      value: player.songData == null
+                                          ? '未载入'
+                                          : '已就绪',
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -270,19 +270,10 @@ class _SoundfontPill extends StatelessWidget {
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: 12,
-            color: color,
-          ),
-        ),
+        Text(text, style: TextStyle(fontSize: 12, color: color)),
       ],
     );
   }
@@ -295,12 +286,12 @@ class _SoundfontStatusLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progressPercent =
-        (player.soundfontDownloadProgress * 100).clamp(0, 100).round();
+    final progressPercent = (player.soundfontDownloadProgress * 100)
+        .clamp(0, 100)
+        .round();
     final message = switch (player.soundfontState) {
       SoundfontSetupState.downloading => '正在自动下载音色库 $progressPercent%',
-      SoundfontSetupState.failed =>
-        player.soundfontErrorMessage ?? '音色库自动下载失败',
+      SoundfontSetupState.failed => player.soundfontErrorMessage ?? '音色库自动下载失败',
       SoundfontSetupState.checking => '正在检查本地音色库',
       SoundfontSetupState.idle => '正在准备音色库',
       SoundfontSetupState.ready => '音色库已就绪',
@@ -325,10 +316,7 @@ class _SoundfontStatusLine extends StatelessWidget {
             onPressed: player.retrySoundfontSetup,
             child: const Text(
               '重试',
-              style: TextStyle(
-                fontSize: 13,
-                color: LuxuryPalette.goldBright,
-              ),
+              style: TextStyle(fontSize: 13, color: LuxuryPalette.goldBright),
             ),
           ),
         ],
@@ -344,11 +332,7 @@ class _HeroAccent extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 40,
-          height: 2,
-          color: LuxuryPalette.goldBright,
-        ),
+        Container(width: 40, height: 2, color: LuxuryPalette.goldBright),
         const SizedBox(width: 10),
         Container(
           width: 10,
@@ -359,12 +343,7 @@ class _HeroAccent extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        Expanded(
-          child: Container(
-            height: 1,
-            color: LuxuryPalette.divider,
-          ),
-        ),
+        Expanded(child: Container(height: 1, color: LuxuryPalette.divider)),
       ],
     );
   }
@@ -572,10 +551,7 @@ class _ValueItem extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const _ValueItem({
-    required this.title,
-    required this.subtitle,
-  });
+  const _ValueItem({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -593,10 +569,7 @@ class _ValueItem extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           subtitle,
-          style: const TextStyle(
-            fontSize: 12,
-            color: LuxuryPalette.textMuted,
-          ),
+          style: const TextStyle(fontSize: 12, color: LuxuryPalette.textMuted),
         ),
       ],
     );
