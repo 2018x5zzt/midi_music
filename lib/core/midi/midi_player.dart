@@ -25,7 +25,7 @@ const _kDefaultSoundfontUrls = [
 /// 负责按时间线调度 MIDI 事件，驱动 MidiEngine 发声。
 /// 支持播放/暂停/停止/跳转/变速。
 class MidiPlayerController extends ChangeNotifier {
-  final MidiEngine _engine = MidiEngine();
+  final MidiPlaybackEngine _engine;
   MidiSongData? _songData;
   TempoMap? _tempoMap;
 
@@ -40,6 +40,9 @@ class MidiPlayerController extends ChangeNotifier {
   DateTime? _lastPlaybackUiNotifyTime;
   String? _soundfontErrorMessage;
 
+  MidiPlayerController({MidiPlaybackEngine? engine})
+    : _engine = engine ?? MidiEngine();
+
   // Getters
   PlaybackState get state => _state;
   bool get isPlaying => _state == PlaybackState.playing;
@@ -48,7 +51,7 @@ class MidiPlayerController extends ChangeNotifier {
   double get currentTime => _currentTime;
   double get playbackSpeed => _playbackSpeed;
   MidiSongData? get songData => _songData;
-  MidiEngine get engine => _engine;
+  MidiPlaybackEngine get engine => _engine;
   bool get isReady => _engine.isReady && _songData != null;
   SoundfontSetupState get soundfontState => _soundfontState;
   double get soundfontDownloadProgress => _soundfontDownloadProgress;
@@ -191,6 +194,7 @@ class MidiPlayerController extends ChangeNotifier {
   /// 设置轨道音量 (0.0 - 1.0)
   void setTrackVolume(int trackIndex, double volume) {
     if (_songData == null) return;
+    if (trackIndex < 0) return;
     if (trackIndex >= _songData!.tracks.length) return;
     _songData!.tracks[trackIndex].volume = volume.clamp(0.0, 1.0);
     notifyListeners();
@@ -199,6 +203,7 @@ class MidiPlayerController extends ChangeNotifier {
   /// 切换轨道静音
   void toggleTrackMute(int trackIndex) {
     if (_songData == null) return;
+    if (trackIndex < 0) return;
     if (trackIndex >= _songData!.tracks.length) return;
     final track = _songData!.tracks[trackIndex];
     track.isMuted = !track.isMuted;
