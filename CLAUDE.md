@@ -120,30 +120,31 @@ flutter test
 - `pitch_input.dart` — `PitchInput` 抽象接口（`pitchStream`、`start()`、`dispose()`）
 - `microphone_input.dart` — `MicrophoneInput` 实现 `PitchInput`。`flutter_audio_capture` → `pitch_detector_dart`（YIN 算法）→ 输出 `Stream<PitchData>`。流控（处理中跳过新帧）、RMS 音量计算
 - `onset_detector.dart` — 纯 Dart 的 onset 检测器。输入 `PitchData` 流，输出 `Stream<OnsetEvent>`。含 `PitchData` 和 `OnsetEvent` 数据模型。检测逻辑：音量/精度阈值 + 去抖（80ms）+ 静音帧计数
-- `follow_mode_controller.dart` — 跟随模式状态机（idle → following → waitingForOnset）。核心算法：onset 与乐谱音符匹配（容差 + 可选八度误差容忍）、EMA（α=0.3）平滑速度因子、测量速度可信范围过滤、音符跳跃检测（向前最多 3 个）、休止符检测、连续未匹配降速。含 `FollowModeConfig` 配置
-- `follow_mode_session.dart` — **跟随模式会话**，串联 `PitchInput` → `OnsetDetector` → `FollowModeController` → `FollowPlaybackTarget` 的完整生命周期。防并发 start、dispose 打断 start、根据跟随状态自动控制播放器（休止时暂停、恢复时播放）
+- `follow_mode_controller.dart` — 跟随模式状态机（idle → following → waitingForOnset）。核心算法：onset 与乐谱音符匹配（容差 + 可选八度误差容忍）、EMA（α=0.3）平滑速度因子、测量速度可信范围过滤、音符跳跃检测（向前最多 3 个）、休止符检测、连续未匹配降速并请求外部按播放位置重对齐。含 `FollowModeConfig` 配置
+- `follow_mode_session.dart` — **跟随模式会话**，串联 `PitchInput` → `OnsetDetector` → `FollowModeController` → `FollowPlaybackTarget` 的完整生命周期。防并发 start、dispose 打断 start、根据跟随状态自动控制播放器（休止时暂停、恢复时播放），支持 `resumeFromTime()` 在用户 seek 或连续未匹配时按当前播放时间重新对齐
 - `follow_playback_target.dart` — `FollowPlaybackTarget` 抽象 + `MidiFollowPlaybackTarget` 实现，适配 `MidiPlayerController`
 
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页，文件选择器（`file_picker`），加载 MIDI 并跳转播放页，SoundFont 状态展示
-- `pages/player_page.dart` — 播放器页面（~260 行，已拆分）。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），组件委托给 `widgets/` 下的子文件
-- `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric
-- `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote
+- `pages/player_page.dart` — 播放器页面（~260 行，已拆分）。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），组件委托给 `widgets/` 下的子文件；用户 seek 后会同步跟随会话的播放时间重对齐
+- `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
+- `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote；回退/快进/归零支持外部 `onSeek` 回调
 - `widgets/performance_console.dart` — PerformanceConsole（跟随模式开关/手动速度滑块）、ConsoleCard
 - `widgets/track_salon.dart` — TrackSalon（轨道列表）、TrackTile（单轨道磁贴）
 - `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，共 63 用例)
-- `midi_player_controller_test.dart` — 播放控制器调度测试（~19 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界）
-- `midi_engine_test.dart` — 引擎通道串行化测试（3 用例）
+### Tests (`test/`，共 74 用例)
+- `midi_player_controller_test.dart` — 播放控制器调度测试（~22 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文）
+- `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
 - `midi_parse_test.dart` — 解析真实 MIDI 文件测试（1 用例）
 - `midi_regression_test.dart` — **MIDI 解析回归测试**（22 用例）：16 个合成 MIDI（Format 0/1、重叠音符、tempo/拍号、PPQ、边界）+ 6 个真实古典 MIDI（巴赫/莫扎特/肖邦/贝多芬，来自 BitMidi）
-- `follow_mode_controller_test.dart` — 跟随算法测试（5 用例）
-- `follow_mode_session_test.dart` — 跟随会话生命周期测试（4 用例）
+- `follow_mode_controller_test.dart` — 跟随算法测试（8 用例，含 seek/currentTime 重对齐和连续未匹配重对齐请求）
+- `follow_mode_session_test.dart` — 跟随会话生命周期测试（8 用例，含长休止暂停恢复、按播放时间重对齐、连续未匹配自动重对齐、dispose 回调清理）
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
+- `player_seek_widgets_test.dart` — 播放页 seek 控件合同测试（2 用例）
 - `widget_test.dart` — App smoke test
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。

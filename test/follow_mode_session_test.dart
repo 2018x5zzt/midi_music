@@ -144,6 +144,27 @@ void main() {
     expect(session.isActive, isFalse);
   });
 
+  test('dispose 后清理跟随控制器回调引用', () async {
+    final pitchInput = _FakePitchInput();
+    final playbackTarget = _FakePlaybackTarget();
+    final onsetDetector = OnsetDetector();
+    final followController = FollowModeController(onsetDetector: onsetDetector);
+    final session = FollowModeSession(
+      playbackTarget: playbackTarget,
+      melodyTrack: _melodyTrack(),
+      pitchInput: pitchInput,
+      onsetDetector: onsetDetector,
+      followController: followController,
+    );
+
+    await session.start();
+    await session.dispose();
+
+    expect(followController.onSpeedChanged, isNull);
+    expect(followController.onStateChanged, isNull);
+    expect(followController.onRealignmentRequested, isNull);
+  });
+
   test('遇到长休止时暂停播放，下一次 onset 后恢复', () async {
     final pitchInput = _FakePitchInput();
     final playbackTarget = _FakePlaybackTarget();
@@ -199,6 +220,109 @@ void main() {
 
     await session.dispose();
   });
+
+  test('按播放时间重对齐后从对应音符继续跟随', () async {
+    final pitchInput = _FakePitchInput();
+    final playbackTarget = _FakePlaybackTarget();
+    final session = FollowModeSession(
+      playbackTarget: playbackTarget,
+      melodyTrack: MidiTrackInfo(
+        index: 0,
+        notes: [
+          _note(60, start: 0, end: 0.2),
+          _note(61, start: 1, end: 1.2),
+          _note(62, start: 2, end: 2.2),
+          _note(63, start: 3, end: 3.2),
+          _note(64, start: 4, end: 4.2),
+          _note(65, start: 5, end: 5.2),
+        ],
+      ),
+      pitchInput: pitchInput,
+    );
+
+    await session.start();
+    session.resumeFromTime(5);
+
+    final start = DateTime(2026);
+    pitchInput.emit(_pitchData(midiNote: 65, timestamp: start));
+    await pumpEventQueue();
+    pitchInput.emit(
+      _pitchData(
+        midiNote: 66,
+        timestamp: start.add(const Duration(milliseconds: 120)),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(session.state, FollowModeState.idle);
+    expect(session.isActive, isFalse);
+    expect(playbackTarget.speed, 1.0);
+
+    await session.dispose();
+  });
+
+  test('连续未匹配后按播放器当前时间自动重对齐', () async {
+    final pitchInput = _FakePitchInput();
+    final playbackTarget = _FakePlaybackTarget()..currentTime = 5;
+    final onsetDetector = OnsetDetector();
+    final followController = FollowModeController(
+      onsetDetector: onsetDetector,
+      config: const FollowModeConfig(
+        noteMatchTolerance: 0,
+        allowOctaveError: false,
+        unmatchedThreshold: 2,
+      ),
+    );
+    final session = FollowModeSession(
+      playbackTarget: playbackTarget,
+      melodyTrack: MidiTrackInfo(
+        index: 0,
+        notes: [
+          _note(60, start: 0, end: 0.2),
+          _note(61, start: 1, end: 1.2),
+          _note(62, start: 2, end: 2.2),
+          _note(63, start: 3, end: 3.2),
+          _note(64, start: 4, end: 4.2),
+          _note(65, start: 5, end: 5.2),
+        ],
+      ),
+      pitchInput: pitchInput,
+      onsetDetector: onsetDetector,
+      followController: followController,
+    );
+
+    await session.start();
+
+    final start = DateTime(2026);
+    pitchInput.emit(_pitchData(midiNote: 72, timestamp: start));
+    await pumpEventQueue();
+    pitchInput.emit(
+      _pitchData(
+        midiNote: 74,
+        timestamp: start.add(const Duration(milliseconds: 120)),
+      ),
+    );
+    await pumpEventQueue();
+    pitchInput.emit(
+      _pitchData(
+        midiNote: 65,
+        timestamp: start.add(const Duration(milliseconds: 240)),
+      ),
+    );
+    await pumpEventQueue();
+    pitchInput.emit(
+      _pitchData(
+        midiNote: 66,
+        timestamp: start.add(const Duration(milliseconds: 360)),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(session.state, FollowModeState.idle);
+    expect(session.isActive, isFalse);
+
+    await session.dispose();
+  });
 }
 
 MidiTrackInfo _melodyTrack() {
@@ -224,6 +348,18 @@ MidiTrackInfo _melodyTrack() {
         endTime: 1.5,
       ),
     ],
+  );
+}
+
+MidiNote _note(int noteNumber, {required double start, required double end}) {
+  return MidiNote(
+    noteNumber: noteNumber,
+    velocity: 80,
+    channel: 0,
+    startTick: (start * 480).round(),
+    endTick: (end * 480).round(),
+    startTime: start,
+    endTime: end,
   );
 }
 
@@ -280,6 +416,9 @@ class _FakePlaybackTarget implements FollowPlaybackTarget {
 
   @override
   double speed = 1.0;
+
+  @override
+  double currentTime = 0.0;
 
   int playCount = 0;
   int pauseCount = 0;

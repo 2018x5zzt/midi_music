@@ -166,6 +166,93 @@ void main() {
     onsetDetector.dispose();
     controller.dispose();
   });
+
+  test('按播放时间恢复后从对应音符继续跟随', () async {
+    final pitchInput = StreamController<PitchData>.broadcast();
+    final onsetDetector = OnsetDetector();
+    final controller = FollowModeController(
+      onsetDetector: onsetDetector,
+      config: const FollowModeConfig(
+        noteMatchTolerance: 0,
+        allowOctaveError: false,
+      ),
+    );
+    onsetDetector.attachPitchStream(pitchInput.stream);
+    controller.loadScore([
+      _note(60, start: 0, end: 0.2),
+      _note(61, start: 1, end: 1.2),
+      _note(62, start: 2, end: 2.2),
+      _note(63, start: 3, end: 3.2),
+      _note(64, start: 4, end: 4.2),
+      _note(65, start: 5, end: 5.2),
+    ]);
+    controller.start();
+    controller.resumeFromTime(5);
+
+    final start = DateTime(2026);
+    pitchInput.add(_pitch(65, start));
+    await pumpEventQueue();
+    pitchInput.add(_pitch(66, start.add(const Duration(milliseconds: 120))));
+    await pumpEventQueue();
+
+    expect(controller.state, FollowModeState.idle);
+
+    await pitchInput.close();
+    onsetDetector.dispose();
+    controller.dispose();
+  });
+
+  test('按超过曲尾的播放时间恢复会停止跟随', () async {
+    final pitchInput = StreamController<PitchData>.broadcast();
+    final onsetDetector = OnsetDetector();
+    final controller = FollowModeController(onsetDetector: onsetDetector);
+    onsetDetector.attachPitchStream(pitchInput.stream);
+    controller.loadScore([_note(60, start: 0, end: 0.2)]);
+    controller.start();
+
+    controller.resumeFromTime(10);
+
+    expect(controller.state, FollowModeState.idle);
+
+    await pitchInput.close();
+    onsetDetector.dispose();
+    controller.dispose();
+  });
+
+  test('连续未匹配达到阈值时请求外部重对齐', () async {
+    final pitchInput = StreamController<PitchData>.broadcast();
+    final onsetDetector = OnsetDetector();
+    final controller = FollowModeController(
+      onsetDetector: onsetDetector,
+      config: const FollowModeConfig(
+        noteMatchTolerance: 0,
+        allowOctaveError: false,
+        unmatchedThreshold: 2,
+      ),
+    );
+    var realignmentRequests = 0;
+    controller.onRealignmentRequested = () => realignmentRequests++;
+    onsetDetector.attachPitchStream(pitchInput.stream);
+    controller.loadScore([
+      _note(60, start: 0, end: 0.2),
+      _note(62, start: 1, end: 1.2),
+    ]);
+    controller.start();
+
+    final start = DateTime(2026);
+    pitchInput.add(_pitch(72, start));
+    await pumpEventQueue();
+    pitchInput.add(_pitch(74, start.add(const Duration(milliseconds: 120))));
+    await pumpEventQueue();
+    pitchInput.add(_pitch(76, start.add(const Duration(milliseconds: 240))));
+    await pumpEventQueue();
+
+    expect(realignmentRequests, 1);
+
+    await pitchInput.close();
+    onsetDetector.dispose();
+    controller.dispose();
+  });
 }
 
 MidiNote _note(int noteNumber, {required double start, required double end}) {

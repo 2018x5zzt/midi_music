@@ -313,6 +313,30 @@ void main() {
     player.dispose();
   });
 
+  testWidgets('同步播放异常会带具体事件上下文上报', (tester) async {
+    final engine = _FakeMidiPlaybackEngine()..throwSynchronouslyOnNoteOn = true;
+    final player = MidiPlayerController(engine: engine);
+    final errors = <String>[];
+    player.onPlaybackError = (error, context) {
+      errors.add('$context: $error');
+    };
+    player.loadSong(
+      _song(
+        tracks: [_track(index: 0)],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+        ],
+      ),
+    );
+
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+
+    expect(errors, ['NoteOn ch:0 note:60: Bad state: sync noteOn failure']);
+
+    player.dispose();
+  });
+
   testWidgets('静音轨道不会分发 NoteOn', (tester) async {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);
@@ -387,9 +411,7 @@ void main() {
     player.dispose();
   });
 
-  testWidgets('静音轨道未发出的 NoteOn 不会在共享 channel 时发送 NoteOff', (
-    tester,
-  ) async {
+  testWidgets('静音轨道未发出的 NoteOn 不会在共享 channel 时发送 NoteOff', (tester) async {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);
     player.loadSong(
@@ -605,6 +627,7 @@ class _FakeMidiPlaybackEngine implements MidiPlaybackEngine {
   final calls = <_EngineCall>[];
   bool ready;
   Completer<void>? loadAssetGate;
+  bool throwSynchronouslyOnNoteOn = false;
 
   _FakeMidiPlaybackEngine({this.ready = true});
 
@@ -640,10 +663,14 @@ class _FakeMidiPlaybackEngine implements MidiPlaybackEngine {
     required int channel,
     required int note,
     required int velocity,
-  }) async {
+  }) {
+    if (throwSynchronouslyOnNoteOn) {
+      throw StateError('sync noteOn failure');
+    }
     calls.add(
       _EngineCall.noteOn(channel: channel, note: note, velocity: velocity),
     );
+    return Future<void>.value();
   }
 
   @override

@@ -56,11 +56,37 @@ void main() {
     expect(midiPro.calls, ['select:0:40', 'stopAll:7', 'selectDone:0:40']);
     expect(midiPro.calls, isNot(contains('play:0:60')));
   });
+
+  test('底层操作失败会向调用方抛出', () async {
+    final midiPro = _FakeMidiPro()..failNextPlayNote = true;
+    final engine = MidiEngine.readyForTesting(midiPro: midiPro, soundfontId: 7);
+
+    await expectLater(
+      engine.noteOn(channel: 0, note: 60, velocity: 100),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(midiPro.calls, ['play:0:60']);
+  });
+
+  test('同通道操作失败后后续操作仍会继续执行', () async {
+    final midiPro = _FakeMidiPro()..failNextPlayNote = true;
+    final engine = MidiEngine.readyForTesting(midiPro: midiPro, soundfontId: 7);
+
+    final failedFuture = engine.noteOn(channel: 0, note: 60, velocity: 100);
+    final nextFuture = engine.noteOn(channel: 0, note: 64, velocity: 100);
+
+    await expectLater(failedFuture, throwsA(isA<StateError>()));
+    await nextFuture;
+
+    expect(midiPro.calls, ['play:0:60', 'play:0:64']);
+  });
 }
 
 class _FakeMidiPro extends MidiPro {
   final calls = <String>[];
   Completer<void>? selectGate;
+  bool failNextPlayNote = false;
 
   @override
   Future<void> selectInstrument({
@@ -82,6 +108,10 @@ class _FakeMidiPro extends MidiPro {
     int sfId = 1,
   }) async {
     calls.add('play:$channel:$key');
+    if (failNextPlayNote) {
+      failNextPlayNote = false;
+      throw StateError('playNote failure');
+    }
   }
 
   @override

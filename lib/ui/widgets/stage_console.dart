@@ -116,6 +116,7 @@ class StageConsole extends StatelessWidget {
   final bool isFollowMode;
   final FollowModeState followState;
   final double followSpeedFactor;
+  final ValueChanged<double>? onSeek;
 
   const StageConsole({
     super.key,
@@ -123,6 +124,7 @@ class StageConsole extends StatelessWidget {
     required this.isFollowMode,
     required this.followState,
     required this.followSpeedFactor,
+    this.onSeek,
   });
 
   @override
@@ -136,8 +138,9 @@ class StageConsole extends StatelessWidget {
       followState,
       player.isPlaying,
     );
-    final displaySpeed =
-        isFollowMode ? followSpeedFactor : player.playbackSpeed;
+    final displaySpeed = isFollowMode
+        ? followSpeedFactor
+        : player.playbackSpeed;
     final displayTitle = displaySongTitle(song.fileName);
     final remaining = (player.totalDuration - player.currentTime).clamp(
       0.0,
@@ -205,10 +208,7 @@ class StageConsole extends StatelessWidget {
                 label: 'BPM',
                 value: player.currentBpm.toStringAsFixed(0),
               ),
-              StageMetric(
-                label: '时长',
-                value: formatClock(song.totalDuration),
-              ),
+              StageMetric(label: '时长', value: formatClock(song.totalDuration)),
               StageMetric(label: '轨道', value: '${song.noteTracks.length}'),
             ],
           ),
@@ -246,8 +246,7 @@ class StageConsole extends StatelessWidget {
                 const SizedBox(height: 8),
                 CupertinoSlider(
                   value: player.progress,
-                  onChanged: (value) =>
-                      player.seekTo(value * player.totalDuration),
+                  onChanged: (value) => _seekTo(value * player.totalDuration),
                 ),
                 Row(
                   children: [
@@ -272,9 +271,18 @@ class StageConsole extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          TransportDeck(player: player),
+          TransportDeck(player: player, onSeek: onSeek),
         ],
       ),
     );
+  }
+
+  void _seekTo(double seconds) {
+    final seek = onSeek;
+    if (seek != null) {
+      seek(seconds);
+    } else {
+      player.seekTo(seconds);
+    }
   }
 }

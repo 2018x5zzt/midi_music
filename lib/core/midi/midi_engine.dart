@@ -165,20 +165,17 @@ class MidiEngine implements MidiPlaybackEngine {
 
     final generation = _operationGeneration;
     final previous = _channelOperations[channel] ?? Future<void>.value();
-    final queued = previous
-        .catchError((Object _) {})
-        .then((_) async {
-          if (generation != _operationGeneration ||
-              !_isReady ||
-              _soundfontId != soundfontId) {
-            return;
-          }
-          await operation(soundfontId);
-        })
-        .catchError((Object _) {});
+    final operationFuture = previous.catchError((Object _) {}).then((_) async {
+      if (generation != _operationGeneration ||
+          !_isReady ||
+          _soundfontId != soundfontId) {
+        return;
+      }
+      await operation(soundfontId);
+    });
 
-    _channelOperations[channel] = queued;
-    return queued;
+    _channelOperations[channel] = operationFuture.catchError((Object _) {});
+    return operationFuture;
   }
 
   void _resetOperationQueues() {

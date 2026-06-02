@@ -65,8 +65,8 @@ class TransportButton extends StatelessWidget {
               size: iconSize,
               color: enabled
                   ? (highlighted
-                      ? CupertinoColors.black
-                      : LuxuryPalette.textPrimary)
+                        ? CupertinoColors.black
+                        : LuxuryPalette.textPrimary)
                   : LuxuryPalette.textSubtle,
             ),
           ),
@@ -76,8 +76,7 @@ class TransportButton extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            color:
-                enabled ? LuxuryPalette.textMuted : LuxuryPalette.textSubtle,
+            color: enabled ? LuxuryPalette.textMuted : LuxuryPalette.textSubtle,
           ),
         ),
       ],
@@ -132,8 +131,9 @@ class ConsoleNote extends StatelessWidget {
 /// 运输控制区
 class TransportDeck extends StatelessWidget {
   final MidiPlayerController player;
+  final ValueChanged<double>? onSeek;
 
-  const TransportDeck({super.key, required this.player});
+  const TransportDeck({super.key, required this.player, this.onSeek});
 
   @override
   Widget build(BuildContext context) {
@@ -147,9 +147,7 @@ class TransportDeck extends StatelessWidget {
       TransportButton(
         icon: CupertinoIcons.gobackward_10,
         label: '回退',
-        onPressed: canPlay
-            ? () => player.seekTo(player.currentTime - 10)
-            : null,
+        onPressed: canPlay ? () => _seekTo(player.currentTime - 10) : null,
       ),
       TransportButton(
         icon: player.isPlaying
@@ -171,14 +169,12 @@ class TransportDeck extends StatelessWidget {
       TransportButton(
         icon: CupertinoIcons.goforward_10,
         label: '快进',
-        onPressed: canPlay
-            ? () => player.seekTo(player.currentTime + 10)
-            : null,
+        onPressed: canPlay ? () => _seekTo(player.currentTime + 10) : null,
       ),
       TransportButton(
         icon: CupertinoIcons.arrow_counterclockwise,
         label: '归零',
-        onPressed: canPlay ? () => player.seekTo(0) : null,
+        onPressed: canPlay ? () => _seekTo(0) : null,
       ),
     ];
 
@@ -233,5 +229,14 @@ class TransportDeck extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  void _seekTo(double seconds) {
+    final seek = onSeek;
+    if (seek != null) {
+      seek(seconds);
+    } else {
+      player.seekTo(seconds);
+    }
   }
 }

@@ -178,10 +178,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
     if (status.isGranted) return true;
 
     if (mounted) {
-      _showAlert(
-        '需要麦克风权限',
-        '跟随模式会通过麦克风识别起拍和速度，请在系统设置中允许访问。',
-      );
+      _showAlert('需要麦克风权限', '跟随模式会通过麦克风识别起拍和速度，请在系统设置中允许访问。');
     }
     return false;
   }
@@ -243,6 +240,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
 
     try {
       await session.start();
+      session.resumeFromTime(player.currentTime);
     } catch (_) {
       if (_followSession == session) {
         _followSession = null;
@@ -269,6 +267,12 @@ class _PlayerBodyState extends State<_PlayerBody> {
     if (session != null) {
       await session.dispose(resetPlayerSpeed: resetPlayerSpeed);
     }
+  }
+
+  void _seekTo(double seconds) {
+    final player = widget.player;
+    player.seekTo(seconds);
+    _followSession?.resumeFromTime(player.currentTime);
   }
 
   void _showAlert(String title, String message) {
@@ -313,6 +317,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
             isFollowMode: _isFollowMode,
             followState: _followState,
             followSpeedFactor: _followSpeedFactor,
+            onSeek: _seekTo,
           ),
           const SizedBox(height: 14),
           PerformanceConsole(

@@ -352,13 +352,16 @@ class MidiPlayerController extends ChangeNotifier {
   }
 
   /// 不阻塞播放线程但失败时上报异常
-  void _fireAndForget(
-    Future<void> Function() operation,
-    String context,
-  ) {
-    unawaited(operation().catchError((Object error) {
+  void _fireAndForget(Future<void> Function() operation, String context) {
+    try {
+      unawaited(
+        operation().catchError((Object error) {
+          _reportError(error, context);
+        }),
+      );
+    } catch (error) {
       _reportError(error, context);
-    }));
+    }
   }
 
   /// 报告异常到外部回调
@@ -409,10 +412,7 @@ class MidiPlayerController extends ChangeNotifier {
     for (final track in _songData!.tracks) {
       for (final entry in track.programByChannel.entries) {
         _fireAndForget(
-          () => _engine.setInstrument(
-            channel: entry.key,
-            program: entry.value,
-          ),
+          () => _engine.setInstrument(channel: entry.key, program: entry.value),
           'InitInstrument ch:${entry.key} prog:${entry.value}',
         );
       }
@@ -444,10 +444,7 @@ class MidiPlayerController extends ChangeNotifier {
 
     for (final entry in programByChannel.entries) {
       _fireAndForget(
-        () => _engine.setInstrument(
-          channel: entry.key,
-          program: entry.value,
-        ),
+        () => _engine.setInstrument(channel: entry.key, program: entry.value),
         'ProgramApply ch:${entry.key} prog:${entry.value}',
       );
     }
@@ -490,10 +487,8 @@ class MidiPlayerController extends ChangeNotifier {
     for (final entry in notesForTrack.entries) {
       for (var i = 0; i < entry.value; i++) {
         _fireAndForget(
-          () => _engine.noteOff(
-            channel: entry.key.channel,
-            note: entry.key.note,
-          ),
+          () =>
+              _engine.noteOff(channel: entry.key.channel, note: entry.key.note),
           'StopNote trk:$trackIndex ch:${entry.key.channel}'
           ' note:${entry.key.note}',
         );

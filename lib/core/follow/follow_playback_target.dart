@@ -3,6 +3,7 @@ import '../midi/midi_player.dart';
 abstract class FollowPlaybackTarget {
   bool get isPlaying;
   double get speed;
+  double get currentTime;
 
   Future<void> play();
   Future<void> pause();
@@ -19,6 +20,9 @@ class MidiFollowPlaybackTarget implements FollowPlaybackTarget {
 
   @override
   double get speed => player.playbackSpeed;
+
+  @override
+  double get currentTime => player.currentTime;
 
   @override
   Future<void> play() async {

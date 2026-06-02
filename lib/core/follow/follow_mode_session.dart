@@ -133,6 +133,7 @@ class FollowModeSession {
 
     _followController.onSpeedChanged = _handleSpeedChanged;
     _followController.onStateChanged = _handleStateChanged;
+    _followController.onRealignmentRequested = _handleRealignmentRequested;
     _followController.loadScore(_melodyTrack.notes);
     _onsetDetector.attachPitchStream(_pitchInput.pitchStream);
 
@@ -169,6 +170,7 @@ class FollowModeSession {
     _started = false;
 
     _followController.stop(notifyCallbacks: false);
+    _detachFollowControllerCallbacks();
     _onsetDetector.detach();
     await _pitchInput.dispose();
     final activeStart = _startFuture;
@@ -183,6 +185,22 @@ class FollowModeSession {
     if (resetPlayerSpeed) {
       await _playbackTarget.setSpeed(1.0);
     }
+  }
+
+  void _detachFollowControllerCallbacks() {
+    _followController.onSpeedChanged = null;
+    _followController.onStateChanged = null;
+    _followController.onRealignmentRequested = null;
+  }
+
+  void resumeFromTime(double currentTimeSeconds) {
+    if (_disposed || !_started) return;
+    _followController.resumeFromTime(currentTimeSeconds);
+  }
+
+  void _handleRealignmentRequested() {
+    if (_disposed || !_started) return;
+    _followController.resumeFromTime(_playbackTarget.currentTime);
   }
 
   void _handleSpeedChanged(double speedFactor) {

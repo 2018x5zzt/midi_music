@@ -75,6 +75,9 @@ typedef SpeedChangeCallback = void Function(double speedFactor);
 /// 状态变化回调
 typedef StateChangeCallback = void Function(FollowModeState state);
 
+/// 请求外部按播放位置重新对齐
+typedef RealignmentRequestCallback = void Function();
+
 // ============================================================
 // FollowModeController
 // ============================================================
@@ -115,6 +118,7 @@ class FollowModeController {
   /// 回调
   SpeedChangeCallback? onSpeedChanged;
   StateChangeCallback? onStateChanged;
+  RealignmentRequestCallback? onRealignmentRequested;
 
   // Getters
   FollowModeState get state => _state;
@@ -181,6 +185,17 @@ class FollowModeController {
     } else {
       _setState(FollowModeState.following);
     }
+  }
+
+  /// 从播放时间恢复（用于播放器 seek/currentTime 后重新对齐）
+  void resumeFromTime(double currentTimeSeconds) {
+    if (_scoreNotes.isEmpty) return;
+    final noteIndex = _findNoteIndexAtOrAfter(currentTimeSeconds);
+    if (noteIndex == null) {
+      stop();
+      return;
+    }
+    resumeFromIndex(noteIndex);
   }
 
   // ============================================================
@@ -264,6 +279,9 @@ class FollowModeController {
     if (_unmatchedCount >= _config.unmatchedThreshold) {
       _applyEmaSpeed(_speedFactor * 0.9);
     }
+    if (_unmatchedCount == _config.unmatchedThreshold) {
+      onRealignmentRequested?.call();
+    }
   }
 
   // ============================================================
@@ -314,6 +332,16 @@ class FollowModeController {
       }
     }
     return -1;
+  }
+
+  int? _findNoteIndexAtOrAfter(double currentTimeSeconds) {
+    for (var i = 0; i < _scoreNotes.length; i++) {
+      final note = _scoreNotes[i];
+      if (note.endTime >= currentTimeSeconds) {
+        return i;
+      }
+    }
+    return null;
   }
 
   /// EMA 平滑更新 speedFactor 并通知回调
