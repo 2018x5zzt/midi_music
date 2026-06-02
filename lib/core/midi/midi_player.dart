@@ -37,6 +37,7 @@ class MidiPlayerController extends ChangeNotifier {
   double _playbackSpeed = 1.0;
   double _soundfontDownloadProgress = 0.0;
   int _currentEventIndex = 0;
+  final Map<int, Map<_ActiveNoteKey, int>> _activeNotesByTrack = {};
   Timer? _ticker;
   DateTime? _lastTickTime;
   DateTime? _lastPlaybackUiNotifyTime;
@@ -191,6 +192,7 @@ class MidiPlayerController extends ChangeNotifier {
     _ticker = null;
     _lastPlaybackUiNotifyTime = null;
     unawaited(_engine.allNotesOff());
+    _clearActiveNotes();
     _notifyListenersIfActive();
   }
 
@@ -204,6 +206,7 @@ class MidiPlayerController extends ChangeNotifier {
     _currentTime = 0.0;
     _currentEventIndex = 0;
     unawaited(_engine.allNotesOff());
+    _clearActiveNotes();
     _notifyListenersIfActive();
   }
 
@@ -215,6 +218,7 @@ class MidiPlayerController extends ChangeNotifier {
 
     _currentTime = seconds.clamp(0.0, totalDuration);
     unawaited(_engine.allNotesOff());
+    _clearActiveNotes();
     _updateEventIndex();
 
     if (wasPlaying) play();
@@ -247,12 +251,7 @@ class MidiPlayerController extends ChangeNotifier {
     final track = _songData!.tracks[trackIndex];
     track.isMuted = !track.isMuted;
     if (track.isMuted) {
-      // 静音时停止该轨道所有通道上的所有音符
-      for (final ch in track.channels) {
-        for (int note = 0; note < 128; note++) {
-          unawaited(_engine.noteOff(channel: ch, note: note));
-        }
-      }
+      _stopActiveNotesForTrack(trackIndex);
     }
     _notifyListenersIfActive();
   }
@@ -317,8 +316,10 @@ class MidiPlayerController extends ChangeNotifier {
             velocity: adjustedVelocity,
           ),
         );
+        _rememberActiveNote(event);
       case MidiEventType.noteOff:
         unawaited(_engine.noteOff(channel: event.channel, note: event.data1));
+        _releaseActiveNote(event);
       case MidiEventType.programChange:
         unawaited(
           _engine.setInstrument(channel: event.channel, program: event.data1),
@@ -371,6 +372,47 @@ class MidiPlayerController extends ChangeNotifier {
     }
   }
 
+  void _rememberActiveNote(TimelineEvent event) {
+    final notesForTrack = _activeNotesByTrack.putIfAbsent(
+      event.trackIndex,
+      () => {},
+    );
+    final key = _ActiveNoteKey(channel: event.channel, note: event.data1);
+    notesForTrack[key] = (notesForTrack[key] ?? 0) + 1;
+  }
+
+  void _releaseActiveNote(TimelineEvent event) {
+    final notesForTrack = _activeNotesByTrack[event.trackIndex];
+    if (notesForTrack == null) return;
+
+    final key = _ActiveNoteKey(channel: event.channel, note: event.data1);
+    final count = notesForTrack[key];
+    if (count == null) return;
+
+    if (count <= 1) {
+      notesForTrack.remove(key);
+    } else {
+      notesForTrack[key] = count - 1;
+    }
+
+    if (notesForTrack.isEmpty) {
+      _activeNotesByTrack.remove(event.trackIndex);
+    }
+  }
+
+  void _stopActiveNotesForTrack(int trackIndex) {
+    final notesForTrack = _activeNotesByTrack.remove(trackIndex);
+    if (notesForTrack == null) return;
+
+    for (final note in notesForTrack.keys) {
+      unawaited(_engine.noteOff(channel: note.channel, note: note.note));
+    }
+  }
+
+  void _clearActiveNotes() {
+    _activeNotesByTrack.clear();
+  }
+
   @override
   void dispose() {
     if (_isDisposed) return;
@@ -381,6 +423,7 @@ class MidiPlayerController extends ChangeNotifier {
     _lastPlaybackUiNotifyTime = null;
     _currentTime = 0.0;
     _currentEventIndex = 0;
+    _clearActiveNotes();
     unawaited(_engine.allNotesOff());
     unawaited(_engine.dispose());
     super.dispose();
@@ -504,4 +547,21 @@ class MidiPlayerController extends ChangeNotifier {
     }
     return '音色库准备失败，请重试。';
   }
+}
+
+class _ActiveNoteKey {
+  final int channel;
+  final int note;
+
+  const _ActiveNoteKey({required this.channel, required this.note});
+
+  @override
+  bool operator ==(Object other) {
+    return other is _ActiveNoteKey &&
+        other.channel == channel &&
+        other.note == note;
+  }
+
+  @override
+  int get hashCode => Object.hash(channel, note);
 }

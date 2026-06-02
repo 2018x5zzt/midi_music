@@ -156,6 +156,59 @@ void main() {
     player.dispose();
   });
 
+  testWidgets('静音共享 channel 的轨道只停止该轨道活动音符', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+          _track(index: 1, channels: {0}),
+        ],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOn(trackIndex: 1, channel: 0, note: 64, velocity: 100, time: 0),
+        ],
+      ),
+    );
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+    engine.clear();
+
+    player.toggleTrackMute(0);
+
+    expect(engine.calls.where((call) => call.type == 'noteOff'), [
+      _EngineCall.noteOff(channel: 0, note: 60),
+    ]);
+
+    player.dispose();
+  });
+
+  testWidgets('已经收到 NoteOff 的音符不会在静音时重复停止', (tester) async {
+    final engine = _FakeMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    player.loadSong(
+      _song(
+        tracks: [
+          _track(index: 0, channels: {0}),
+        ],
+        timeline: [
+          _noteOn(trackIndex: 0, channel: 0, note: 60, velocity: 100, time: 0),
+          _noteOff(trackIndex: 0, channel: 0, note: 60, time: 0),
+        ],
+      ),
+    );
+    player.play();
+    await tester.pump(const Duration(milliseconds: 6));
+    engine.clear();
+
+    player.toggleTrackMute(0);
+
+    expect(engine.calls.where((call) => call.type == 'noteOff'), isEmpty);
+
+    player.dispose();
+  });
+
   testWidgets('seek 到事件之后再播放不会重放旧事件', (tester) async {
     final engine = _FakeMidiPlaybackEngine();
     final player = MidiPlayerController(engine: engine);
@@ -221,6 +274,23 @@ TimelineEvent _noteOn({
     trackIndex: trackIndex,
     data1: note,
     data2: velocity,
+  );
+}
+
+TimelineEvent _noteOff({
+  required int trackIndex,
+  required int channel,
+  required int note,
+  required double time,
+}) {
+  return TimelineEvent(
+    type: MidiEventType.noteOff,
+    tick: (time * 960).round(),
+    time: time,
+    channel: channel,
+    trackIndex: trackIndex,
+    data1: note,
+    data2: 0,
   );
 }
 
