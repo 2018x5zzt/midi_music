@@ -114,7 +114,7 @@ flutter test
 - `midi_engine.dart` — `MidiPlaybackEngine` 抽象 + `MidiEngine` 实现。封装 `flutter_midi_pro`，按 channel 串行化操作队列（`_channelOperations`），通过 `_operationGeneration` 代际机制确保 `allNotesOff` 时取消未完成的排队操作
 - `midi_parser.dart` — `MidiFileParser`，使用 `dart_midi_pro` 解析 MIDI 文件。FIFO 配对重叠音符（`_PendingNote` 链表），后台 isolate 执行（`compute`）
 - `tempo_map.dart` — tick ↔ 秒互转，支持多 tempo 变化点，二分查找，批量顺序应用优化
-- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms Timer 调度事件、播放/暂停/停止/跳转/变速（0.25–4.0x）、按 trackIndex 做静音/音量控制、每轨道活动音符追踪、40Hz UI 通知节流、SoundFont 自动下载/缓存
+- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
 
 ### Tempo Follow (`lib/core/follow/`)
 - `pitch_input.dart` — `PitchInput` 抽象接口（`pitchStream`、`start()`、`dispose()`）
@@ -126,20 +126,34 @@ flutter test
 
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页，文件选择器（`file_picker`），加载 MIDI 并跳转播放页，SoundFont 状态展示
-- `pages/player_page.dart` — 播放器页面（1410 行，后续会拆分）。包含：StageConsole（曲名/进度/速度/BPM）、PerformanceConsole（跟随模式开关/手动调速滑块）、TrackSalon（轨道列表/静音/音量/设为主旋律）、TransportDeck（5 按钮运输控制）
+- `pages/player_page.dart` — 播放器页面（~260 行，已拆分）。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），组件委托给 `widgets/` 下的子文件
+- `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric
+- `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote
+- `widgets/performance_console.dart` — PerformanceConsole（跟随模式开关/手动速度滑块）、ConsoleCard
+- `widgets/track_salon.dart` — TrackSalon（轨道列表）、TrackTile（单轨道磁贴）
+- `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
+- `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`)
-- `midi_player_controller_test.dart` — 播放控制器调度测试（8 用例）
+### Tests (`test/`，共 63 用例)
+- `midi_player_controller_test.dart` — 播放控制器调度测试（~19 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界）
 - `midi_engine_test.dart` — 引擎通道串行化测试（3 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
 - `midi_parse_test.dart` — 解析真实 MIDI 文件测试（1 用例）
+- `midi_regression_test.dart` — **MIDI 解析回归测试**（22 用例）：16 个合成 MIDI（Format 0/1、重叠音符、tempo/拍号、PPQ、边界）+ 6 个真实古典 MIDI（巴赫/莫扎特/肖邦/贝多芬，来自 BitMidi）
 - `follow_mode_controller_test.dart` — 跟随算法测试（5 用例）
 - `follow_mode_session_test.dart` — 跟随会话生命周期测试（4 用例）
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
 - `widget_test.dart` — App smoke test
 
-测试大量使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
+测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
+
+### Assets (`assets/midi/`)
+- `Beethoven-Moonlight-Sonata.mid` — 贝多芬月光奏鸣曲（Format 1，8 tracks，PPQ=120）
+- `bach_wtc1_prelude.mid` — 巴赫平均律前奏曲 BWV 846（Format 1，13 tracks，PPQ=96）
+- `mozart_k545.mid` — 莫扎特钢琴奏鸣曲 K545（Format 1，4 tracks，PPQ=120）
+- `chopin_nocturne.mid` — 肖邦夜曲（Format 1，14 tracks，PPQ=384）
+- `beethoven_moonlight_2.mid` — 贝多芬月光第二乐章（Format 1，11 tracks，PPQ=96）
 
 ---
 
@@ -162,6 +176,8 @@ flutter test
 - **生命周期守卫**: 所有公开方法开头检查 `_isDisposed`，异步操作支持 `dispose()` 打断
 - **SoundFont**: 首次运行自动从 CDN 下载 TimGM6mb.sf2（~6MB），缓存到应用目录，3 个后备 URL
 - **依赖注入**: `MidiPlayerController`、`MidiEngine`、`MicrophoneInput` 等均支持通过构造函数注入替代实现，便于测试
+- **异步错误处理**: 引擎操作（NoteOn/NoteOff/ProgramChange）通过 `_fireAndForget()` 统一调度，失败时触达 `onPlaybackError` 回调；UI 端以红色横幅展示 4 秒后自动消失
+- **PlayerPage 已拆分**: 原先 1410 行的单文件已拆为 7 个文件（1 页面 + 5 组件 + 1 工具），改 UI 时优先找对应的 widget 文件
 
 ---
 
