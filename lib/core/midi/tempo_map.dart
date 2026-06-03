@@ -18,10 +18,12 @@ class TempoMap {
   }) : _tempoChanges = List.from(tempoChanges) {
     // 确保至少有一个默认 tempo（120 BPM）
     if (_tempoChanges.isEmpty) {
-      _tempoChanges.add(TempoChange(
-        tick: 0,
-        microsecondsPerBeat: 500000, // 120 BPM
-      ));
+      _tempoChanges.add(
+        TempoChange(
+          tick: 0,
+          microsecondsPerBeat: 500000, // 120 BPM
+        ),
+      );
     }
     _buildSegmentTimes();
   }
@@ -92,8 +94,7 @@ class TempoMap {
   }
 
   /// 所有 tempo 变化点
-  List<TempoChange> get tempoChanges =>
-      List.unmodifiable(_tempoChanges);
+  List<TempoChange> get tempoChanges => List.unmodifiable(_tempoChanges);
 
   /// 二分查找 tick 所在的 tempo 段索引
   int _findSegmentIndex(int tick) {
@@ -138,8 +139,7 @@ class TempoMap {
           _tempoChanges[segIndex + 1].tick <= note.startTick) {
         segIndex++;
       }
-      note.startTime = _tickToSecondsAtSegment(
-          note.startTick, segIndex);
+      note.startTime = _tickToSecondsAtSegment(note.startTick, segIndex);
       // endTime（可能跨 tempo 段）
       note.endTime = tickToSeconds(note.endTick);
     }

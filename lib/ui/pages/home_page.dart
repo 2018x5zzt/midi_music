@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
@@ -28,6 +30,7 @@ class _HomePageState extends State<HomePage> {
     final filePath = result.files.single.path;
     if (filePath == null) return;
 
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
@@ -37,11 +40,9 @@ class _HomePageState extends State<HomePage> {
       final player = context.read<MidiPlayerController>();
       player.loadSong(songData);
 
-      Navigator.of(context).push(
-        CupertinoPageRoute(
-          builder: (_) => const PlayerPage(),
-        ),
-      );
+      unawaited(Navigator.of(
+        context,
+      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
     } catch (e) {
       if (!mounted) return;
       _showError('无法解析 MIDI 文件: $e');
@@ -69,11 +70,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openPlayer() {
-    Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) => const PlayerPage(),
-      ),
-    );
+    unawaited(Navigator.of(
+      context,
+    ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
   }
 
   @override
@@ -137,7 +136,9 @@ class _HomePageState extends State<HomePage> {
                               ],
                               if (player.songData != null) ...[
                                 const SizedBox(height: 14),
-                                _LoadedScoreLine(fileName: player.songData!.fileName),
+                                _LoadedScoreLine(
+                                  fileName: player.songData!.fileName,
+                                ),
                               ],
                               const SizedBox(height: 22),
                               _PrimaryActionButton(
@@ -159,7 +160,9 @@ class _HomePageState extends State<HomePage> {
                                   Expanded(
                                     child: _CompactMetric(
                                       label: '当前曲目',
-                                      value: player.songData == null ? '未载入' : '已就绪',
+                                      value: player.songData == null
+                                          ? '未载入'
+                                          : '已就绪',
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -191,11 +194,11 @@ class _HeaderBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return const Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          children: const [
+          children: [
             Text(
               'NOCTURNE EDITION',
               style: TextStyle(
@@ -269,19 +272,10 @@ class _SoundfontPill extends StatelessWidget {
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: 12,
-            color: color,
-          ),
-        ),
+        Text(text, style: TextStyle(fontSize: 12, color: color)),
       ],
     );
   }
@@ -294,12 +288,12 @@ class _SoundfontStatusLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progressPercent =
-        (player.soundfontDownloadProgress * 100).clamp(0, 100).round();
+    final progressPercent = (player.soundfontDownloadProgress * 100)
+        .clamp(0, 100)
+        .round();
     final message = switch (player.soundfontState) {
       SoundfontSetupState.downloading => '正在自动下载音色库 $progressPercent%',
-      SoundfontSetupState.failed =>
-        player.soundfontErrorMessage ?? '音色库自动下载失败',
+      SoundfontSetupState.failed => player.soundfontErrorMessage ?? '音色库自动下载失败',
       SoundfontSetupState.checking => '正在检查本地音色库',
       SoundfontSetupState.idle => '正在准备音色库',
       SoundfontSetupState.ready => '音色库已就绪',
@@ -324,10 +318,7 @@ class _SoundfontStatusLine extends StatelessWidget {
             onPressed: player.retrySoundfontSetup,
             child: const Text(
               '重试',
-              style: TextStyle(
-                fontSize: 13,
-                color: LuxuryPalette.goldBright,
-              ),
+              style: TextStyle(fontSize: 13, color: LuxuryPalette.goldBright),
             ),
           ),
         ],
@@ -343,11 +334,7 @@ class _HeroAccent extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 40,
-          height: 2,
-          color: LuxuryPalette.goldBright,
-        ),
+        Container(width: 40, height: 2, color: LuxuryPalette.goldBright),
         const SizedBox(width: 10),
         Container(
           width: 10,
@@ -358,12 +345,7 @@ class _HeroAccent extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        Expanded(
-          child: Container(
-            height: 1,
-            color: LuxuryPalette.divider,
-          ),
-        ),
+        Expanded(child: Container(height: 1, color: LuxuryPalette.divider)),
       ],
     );
   }
@@ -553,11 +535,11 @@ class _BottomFeatureStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LuxuryPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+    return const LuxuryPanel(
+      padding: EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: const [
+        children: [
           _ValueItem(title: '导入', subtitle: 'MIDI'),
           _ValueItem(title: '控制', subtitle: '轨道'),
           _ValueItem(title: '跟随', subtitle: '实时'),
@@ -571,10 +553,7 @@ class _ValueItem extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const _ValueItem({
-    required this.title,
-    required this.subtitle,
-  });
+  const _ValueItem({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -592,10 +571,7 @@ class _ValueItem extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           subtitle,
-          style: const TextStyle(
-            fontSize: 12,
-            color: LuxuryPalette.textMuted,
-          ),
+          style: const TextStyle(fontSize: 12, color: LuxuryPalette.textMuted),
         ),
       ],
     );

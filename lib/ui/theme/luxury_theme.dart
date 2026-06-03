@@ -127,7 +127,8 @@ class LuxuryPanel extends StatelessWidget {
   }
 }
 
-TextStyle luxuryDisplayStyle(BuildContext context, {
+TextStyle luxuryDisplayStyle(
+  BuildContext context, {
   double size = 36,
   Color color = LuxuryPalette.textPrimary,
 }) {
