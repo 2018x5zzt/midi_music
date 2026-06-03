@@ -18,7 +18,7 @@ class PitchData {
   /// 八度
   final int octave;
 
-  /// 音量 (0.0 - 1.0 归一化)
+  /// 原始 RMS 音量，按输入采样计算，未额外归一化
   final double volume;
 
   /// 音量 (dBFS)
@@ -82,7 +82,7 @@ class OnsetEvent {
 
 /// Onset 检测器配置
 class OnsetDetectorConfig {
-  /// 最小音量阈值（归一化 0.0-1.0），低于此值忽略
+  /// 最小原始 RMS 音量阈值，低于此值忽略
   final double volumeThreshold;
 
   /// 最小检测精度阈值 (0.0-1.0)
@@ -98,10 +98,10 @@ class OnsetDetectorConfig {
   final int maxMidiNote;
 
   const OnsetDetectorConfig({
-    this.volumeThreshold = 0.05,
+    this.volumeThreshold = 0.0005,
     this.precisionThreshold = 0.5,
     this.debounceMs = 80,
-    this.minMidiNote = 21,  // A0
+    this.minMidiNote = 21, // A0
     this.maxMidiNote = 108, // C8
   });
 }
@@ -131,7 +131,7 @@ class OnsetDetector {
   static const int _silenceThreshold = 3;
 
   OnsetDetector({OnsetDetectorConfig? config})
-      : _config = config ?? const OnsetDetectorConfig();
+    : _config = config ?? const OnsetDetectorConfig();
 
   /// Onset 事件输出流
   Stream<OnsetEvent> get onsetStream => _onsetController.stream;
@@ -211,20 +211,21 @@ class OnsetDetector {
     final elapsed = now.difference(_lastOnsetTime).inMilliseconds;
 
     // 同一音符的去抖
-    if (data.midiNote == _lastOnsetNote &&
-        elapsed < _config.debounceMs) {
+    if (data.midiNote == _lastOnsetNote && elapsed < _config.debounceMs) {
       return;
     }
 
     _lastOnsetNote = data.midiNote;
     _lastOnsetTime = now;
 
-    _onsetController.add(OnsetEvent(
-      midiNote: data.midiNote,
-      frequency: data.frequency,
-      volume: data.volume,
-      timestamp: now,
-    ));
+    _onsetController.add(
+      OnsetEvent(
+        midiNote: data.midiNote,
+        frequency: data.frequency,
+        volume: data.volume,
+        timestamp: now,
+      ),
+    );
   }
 
   /// 释放资源

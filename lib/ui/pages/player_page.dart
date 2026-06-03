@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
@@ -103,10 +105,10 @@ class _PlayerBodyState extends State<_PlayerBody> {
 
   @override
   void dispose() {
-    _stopFollowMode();
-    _followController?.dispose();
-    _onsetDetector?.dispose();
-    _micInput?.dispose();
+    final player = widget.player;
+    unawaited(
+      _releaseFollowResources(player: player).catchError((Object _) {}),
+    );
     super.dispose();
   }
 
@@ -116,8 +118,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
 
   Future<void> _toggleFollowMode() async {
     if (_isFollowMode) {
-      _stopFollowMode();
-      setState(() => _isFollowMode = false);
+      await _stopFollowMode();
       return;
     }
 
@@ -129,8 +130,22 @@ class _PlayerBodyState extends State<_PlayerBody> {
     final granted = await _requestMicPermission();
     if (!granted) return;
 
-    _startFollowMode();
-    setState(() => _isFollowMode = true);
+    try {
+      await _startFollowMode();
+      if (mounted) {
+        setState(() => _isFollowMode = true);
+      }
+    } catch (e) {
+      await _stopFollowMode(updateUi: false);
+      if (mounted) {
+        setState(() {
+          _isFollowMode = false;
+          _followState = FollowModeState.idle;
+          _followSpeedFactor = 1.0;
+        });
+        _showAlert('跟随模式启动失败', '无法启动麦克风检测：$e');
+      }
+    }
   }
 
   Future<bool> _requestMicPermission() async {
@@ -146,15 +161,32 @@ class _PlayerBodyState extends State<_PlayerBody> {
     return false;
   }
 
-  void _startFollowMode() {
+  Future<void> _startFollowMode() async {
     final player = widget.player;
     final song = player.songData;
-    if (song == null || _melodyTrackIndex == null) return;
+    final melodyTrackIndex = _melodyTrackIndex;
+    if (song == null) {
+      throw StateError('未加载 MIDI 乐谱');
+    }
+    if (melodyTrackIndex == null) {
+      throw StateError('未选择主旋律轨道');
+    }
 
-    final melodyTrack = song.tracks.firstWhere(
-      (track) => track.index == _melodyTrackIndex,
-      orElse: () => song.tracks.first,
-    );
+    MidiTrackInfo? melodyTrack;
+    for (final track in song.tracks) {
+      if (track.index == melodyTrackIndex) {
+        melodyTrack = track;
+        break;
+      }
+    }
+    if (melodyTrack == null) {
+      throw StateError('主旋律轨道不存在');
+    }
+    if (melodyTrack.notes.isEmpty) {
+      throw StateError('主旋律轨道没有可跟随的音符');
+    }
+
+    await _releaseFollowResources(resetPlayerSpeed: false);
 
     _micInput = MicrophoneInput();
     _onsetDetector = OnsetDetector();
@@ -163,32 +195,83 @@ class _PlayerBodyState extends State<_PlayerBody> {
     _followController!.onSpeedChanged = (speed) {
       player.setSpeed(speed);
       if (mounted) {
-        setState(() => _followSpeedFactor = speed);
+        // 确保在主线程更新UI
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _followSpeedFactor = speed);
+          }
+        });
       }
     };
     _followController!.onStateChanged = (state) {
       if (mounted) {
-        setState(() => _followState = state);
+        // 确保在主线程更新UI
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _followState = state);
+          }
+        });
       }
     };
 
-    _followController!.loadScore(melodyTrack.notes);
-    _onsetDetector!.attachPitchStream(_micInput!.pitchStream);
-    _micInput!.start();
-    _followController!.start();
+    try {
+      _followController!.loadScore(melodyTrack.notes);
+      _onsetDetector!.attachPitchStream(_micInput!.pitchStream);
+
+      // 使用更适合实时音频处理的参数
+      await _micInput!.start(
+        sampleRate: 44100,
+        bufferSize: 4096, // 减小缓冲区，降低延迟
+        minPrecision: 0.6, // 提高精度要求
+      );
+
+      // 确保播放器在启动，否则没有声音
+      if (!player.isPlaying) {
+        player.play();
+      }
+
+      _followController!.start();
+    } catch (_) {
+      await _releaseFollowResources(resetPlayerSpeed: false);
+      rethrow;
+    }
   }
 
-  void _stopFollowMode() {
-    _followController?.stop();
-    _onsetDetector?.detach();
-    _micInput?.stop();
-    widget.player.setSpeed(1.0);
+  Future<void> _stopFollowMode({bool updateUi = true}) async {
+    await _releaseFollowResources();
 
-    if (mounted) {
+    if (mounted && updateUi) {
       setState(() {
+        _isFollowMode = false;
         _followState = FollowModeState.idle;
         _followSpeedFactor = 1.0;
       });
+    }
+  }
+
+  Future<void> _releaseFollowResources({
+    MidiPlayerController? player,
+    bool resetPlayerSpeed = true,
+  }) async {
+    final followController = _followController;
+    final onsetDetector = _onsetDetector;
+    final micInput = _micInput;
+
+    _followController = null;
+    _onsetDetector = null;
+    _micInput = null;
+
+    followController?.stop(notifyCallbacks: false);
+    onsetDetector?.detach();
+
+    if (micInput != null) {
+      await micInput.dispose();
+    }
+    followController?.dispose();
+    onsetDetector?.dispose();
+
+    if (resetPlayerSpeed) {
+      (player ?? widget.player).setSpeed(1.0);
     }
   }
 
@@ -259,8 +342,9 @@ class _SoundfontBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progressPercent =
-        (player.soundfontDownloadProgress * 100).clamp(0, 100).round();
+    final progressPercent = (player.soundfontDownloadProgress * 100)
+        .clamp(0, 100)
+        .round();
     final message = switch (player.soundfontState) {
       SoundfontSetupState.downloading => '正在自动下载演出音色 $progressPercent%',
       SoundfontSetupState.failed =>
@@ -275,7 +359,8 @@ class _SoundfontBanner extends StatelessWidget {
       _ => LuxuryPalette.goldBright,
     };
     final icon = switch (player.soundfontState) {
-      SoundfontSetupState.failed => CupertinoIcons.exclamationmark_triangle_fill,
+      SoundfontSetupState.failed =>
+        CupertinoIcons.exclamationmark_triangle_fill,
       SoundfontSetupState.ready => CupertinoIcons.check_mark_circled_solid,
       _ => CupertinoIcons.cloud_download_fill,
     };
@@ -304,10 +389,7 @@ class _SoundfontBanner extends StatelessWidget {
               onPressed: player.retrySoundfontSetup,
               child: const Text(
                 '重试',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: LuxuryPalette.goldBright,
-                ),
+                style: TextStyle(fontSize: 13, color: LuxuryPalette.goldBright),
               ),
             ),
           ],
@@ -336,12 +418,19 @@ class _StageConsole extends StatelessWidget {
     if (song == null) return const SizedBox.shrink();
 
     final accent = _followAccent(isFollowMode, followState, player.isPlaying);
-    final accentLabel = _followLabel(isFollowMode, followState, player.isPlaying);
-    final displaySpeed =
-        isFollowMode ? followSpeedFactor : player.playbackSpeed;
+    final accentLabel = _followLabel(
+      isFollowMode,
+      followState,
+      player.isPlaying,
+    );
+    final displaySpeed = isFollowMode
+        ? followSpeedFactor
+        : player.playbackSpeed;
     final displayTitle = _displaySongTitle(song.fileName);
-    final remaining = (player.totalDuration - player.currentTime)
-        .clamp(0.0, player.totalDuration);
+    final remaining = (player.totalDuration - player.currentTime).clamp(
+      0.0,
+      player.totalDuration,
+    );
     final titleSize = displayTitle.length > 24
         ? 26.0
         : (displayTitle.length > 16 ? 30.0 : 34.0);
@@ -408,10 +497,7 @@ class _StageConsole extends StatelessWidget {
                 label: '时长',
                 value: _formatClock(song.totalDuration),
               ),
-              _StageMetric(
-                label: '轨道',
-                value: '${song.noteTracks.length}',
-              ),
+              _StageMetric(label: '轨道', value: '${song.noteTracks.length}'),
             ],
           ),
           const SizedBox(height: 18),
@@ -448,7 +534,8 @@ class _StageConsole extends StatelessWidget {
                 const SizedBox(height: 8),
                 CupertinoSlider(
                   value: player.progress,
-                  onChanged: (value) => player.seekTo(value * player.totalDuration),
+                  onChanged: (value) =>
+                      player.seekTo(value * player.totalDuration),
                 ),
                 Row(
                   children: [
@@ -497,7 +584,9 @@ class _TransportDeck extends StatelessWidget {
       _TransportButton(
         icon: CupertinoIcons.gobackward_10,
         label: '回退',
-        onPressed: canPlay ? () => player.seekTo(player.currentTime - 10) : null,
+        onPressed: canPlay
+            ? () => player.seekTo(player.currentTime - 10)
+            : null,
       ),
       _TransportButton(
         icon: player.isPlaying
@@ -519,7 +608,9 @@ class _TransportDeck extends StatelessWidget {
       _TransportButton(
         icon: CupertinoIcons.goforward_10,
         label: '快进',
-        onPressed: canPlay ? () => player.seekTo(player.currentTime + 10) : null,
+        onPressed: canPlay
+            ? () => player.seekTo(player.currentTime + 10)
+            : null,
       ),
       _TransportButton(
         icon: CupertinoIcons.arrow_counterclockwise,
@@ -547,10 +638,7 @@ class _TransportDeck extends StatelessWidget {
                   const SizedBox(height: 14),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      transportButtons[3],
-                      transportButtons[4],
-                    ],
+                    children: [transportButtons[3], transportButtons[4]],
                   ),
                 ],
               );
@@ -604,7 +692,11 @@ class _PerformanceConsole extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final followAccent = _followAccent(isFollowMode, followState, player.isPlaying);
+    final followAccent = _followAccent(
+      isFollowMode,
+      followState,
+      player.isPlaying,
+    );
     final followNote = switch (followState) {
       FollowModeState.following => '伴奏正在贴合你的演奏速度。',
       FollowModeState.waitingForOnset => '已进入跟随模式，等待新的起拍。',
@@ -631,10 +723,7 @@ class _PerformanceConsole extends StatelessWidget {
               ),
             ],
           ),
-          Text(
-            '跟随与排练',
-            style: luxuryDisplayStyle(context, size: 28),
-          ),
+          Text('跟随与排练', style: luxuryDisplayStyle(context, size: 28)),
           const SizedBox(height: 8),
           Text(
             followNote,
@@ -676,7 +765,10 @@ class _PerformanceConsole extends StatelessWidget {
             child: isFollowMode
                 ? Container(
                     key: const ValueKey('follow-live'),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
                     decoration: BoxDecoration(
                       color: followAccent.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(22),
@@ -791,10 +883,7 @@ class _TrackSalon extends StatelessWidget {
               ),
             ],
           ),
-          Text(
-            '轨道总谱',
-            style: luxuryDisplayStyle(context, size: 28),
-          ),
+          Text('轨道总谱', style: luxuryDisplayStyle(context, size: 28)),
           const SizedBox(height: 8),
           const Text(
             '在这里处理主旋律、静音和混音平衡。',
@@ -822,7 +911,8 @@ class _TrackSalon extends StatelessWidget {
                   track: track,
                   isMelody: track.index == melodyTrackIndex,
                   onToggleMute: () => player.toggleTrackMute(track.index),
-                  onVolumeChanged: (value) => player.setTrackVolume(track.index, value),
+                  onVolumeChanged: (value) =>
+                      player.setTrackVolume(track.index, value),
                   onSetMelody: () => onSetMelody(track.index),
                 );
               },
@@ -914,7 +1004,10 @@ class _TrackTile extends StatelessWidget {
                 ),
               ),
               CupertinoButton(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 minimumSize: const Size(30, 30),
                 color: isMelody
                     ? LuxuryPalette.gold.withValues(alpha: 0.16)
@@ -937,7 +1030,10 @@ class _TrackTile extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: CupertinoColors.black.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(999),
@@ -1012,9 +1108,7 @@ class _OrnamentLine extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        Expanded(
-          child: Container(height: 1, color: LuxuryPalette.divider),
-        ),
+        Expanded(child: Container(height: 1, color: LuxuryPalette.divider)),
       ],
     );
   }
@@ -1035,13 +1129,7 @@ class _StatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: color.withValues(alpha: 0.34)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          color: color,
-        ),
-      ),
+      child: Text(label, style: TextStyle(fontSize: 12, color: color)),
     );
   }
 }
@@ -1187,10 +1275,11 @@ class _TransportButton extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: (enabled && highlighted
-                        ? LuxuryPalette.gold
-                        : CupertinoColors.black)
-                    .withValues(alpha: 0.22),
+                color:
+                    (enabled && highlighted
+                            ? LuxuryPalette.gold
+                            : CupertinoColors.black)
+                        .withValues(alpha: 0.22),
                 blurRadius: 18,
                 offset: const Offset(0, 10),
               ),
@@ -1206,8 +1295,8 @@ class _TransportButton extends StatelessWidget {
               size: iconSize,
               color: enabled
                   ? (highlighted
-                      ? CupertinoColors.black
-                      : LuxuryPalette.textPrimary)
+                        ? CupertinoColors.black
+                        : LuxuryPalette.textPrimary)
                   : LuxuryPalette.textSubtle,
             ),
           ),
@@ -1217,9 +1306,7 @@ class _TransportButton extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: enabled
-                ? LuxuryPalette.textMuted
-                : LuxuryPalette.textSubtle,
+            color: enabled ? LuxuryPalette.textMuted : LuxuryPalette.textSubtle,
           ),
         ),
       ],
