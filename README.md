@@ -62,6 +62,8 @@ test/
 assets/
 └── midi/
     └── Beethoven-Moonlight-Sonata.mid # 测试用 MIDI 文件
+docs/
+└── release_checklist.md               # 上线前人工验收清单
 ```
 
 ## 🚀 快速开始
@@ -92,6 +94,12 @@ flutter run
 flutter analyze
 flutter test
 ```
+
+### 上线前验收
+
+自动化测试通过后，发布或交付试用版前还需要按设备完成一轮人工验收，重点覆盖 SoundFont 首次下载、MIDI 导入、播放控制、设置页、跟随模式和麦克风权限边界。
+
+详见 [`docs/release_checklist.md`](docs/release_checklist.md)。
 
 ### 准备资源文件
 
