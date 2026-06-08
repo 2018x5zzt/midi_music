@@ -53,6 +53,10 @@ class AppSettingsController extends ChangeNotifier {
   static const double defaultMinMeasuredSpeedFactorValue = 0.6;
   static const double defaultMaxMeasuredSpeedFactorValue = 1.6;
   static const double defaultRestThresholdSecondsValue = 1.0;
+  static const int defaultInputLatencyCompensationMsValue = 0;
+  static const bool defaultLoopPlaybackValue = false;
+  static const bool defaultAutoStopAllNotesValue = true;
+  static const bool defaultShowDebugInfoValue = false;
 
   final AppSettingsStorage _storage;
 
@@ -64,6 +68,10 @@ class AppSettingsController extends ChangeNotifier {
   double _minMeasuredSpeedFactor = defaultMinMeasuredSpeedFactorValue;
   double _maxMeasuredSpeedFactor = defaultMaxMeasuredSpeedFactorValue;
   double _restThresholdSeconds = defaultRestThresholdSecondsValue;
+  int _inputLatencyCompensationMs = defaultInputLatencyCompensationMsValue;
+  bool _loopPlayback = defaultLoopPlaybackValue;
+  bool _autoStopAllNotes = defaultAutoStopAllNotesValue;
+  bool _showDebugInfo = defaultShowDebugInfoValue;
   bool _isLoaded = false;
 
   AppSettingsController({AppSettingsStorage? storage})
@@ -77,6 +85,10 @@ class AppSettingsController extends ChangeNotifier {
   double get minMeasuredSpeedFactor => _minMeasuredSpeedFactor;
   double get maxMeasuredSpeedFactor => _maxMeasuredSpeedFactor;
   double get restThresholdSeconds => _restThresholdSeconds;
+  int get inputLatencyCompensationMs => _inputLatencyCompensationMs;
+  bool get loopPlayback => _loopPlayback;
+  bool get autoStopAllNotes => _autoStopAllNotes;
+  bool get showDebugInfo => _showDebugInfo;
   bool get isLoaded => _isLoaded;
 
   FollowModeSessionConfig get followSessionConfig =>
@@ -85,6 +97,7 @@ class AppSettingsController extends ChangeNotifier {
   OnsetDetectorConfig get onsetDetectorConfig => OnsetDetectorConfig(
     volumeThreshold: _onsetVolumeThreshold,
     precisionThreshold: _microphoneMinPrecision,
+    inputLatencyCompensationMs: _inputLatencyCompensationMs,
   );
 
   FollowModeConfig get followModeConfig => FollowModeConfig(
@@ -153,6 +166,28 @@ class AppSettingsController extends ChangeNotifier {
         min: 0.5,
         max: 3.0,
       );
+      _inputLatencyCompensationMs = _readInt(
+        values,
+        'inputLatencyCompensationMs',
+        defaultInputLatencyCompensationMsValue,
+        min: -300,
+        max: 300,
+      );
+      _loopPlayback = _readBool(
+        values,
+        'loopPlayback',
+        defaultLoopPlaybackValue,
+      );
+      _autoStopAllNotes = _readBool(
+        values,
+        'autoStopAllNotes',
+        defaultAutoStopAllNotesValue,
+      );
+      _showDebugInfo = _readBool(
+        values,
+        'showDebugInfo',
+        defaultShowDebugInfoValue,
+      );
       _normalizeMeasuredSpeedRange();
     } catch (_) {
       // Keep safe defaults if the settings file is missing or malformed.
@@ -200,6 +235,22 @@ class AppSettingsController extends ChangeNotifier {
     _update(() => _restThresholdSeconds = _clampDouble(value, 0.5, 3.0));
   }
 
+  void setInputLatencyCompensationMs(int value) {
+    _update(() => _inputLatencyCompensationMs = _clampInt(value, -300, 300));
+  }
+
+  void setLoopPlayback({required bool value}) {
+    _update(() => _loopPlayback = value);
+  }
+
+  void setAutoStopAllNotes({required bool value}) {
+    _update(() => _autoStopAllNotes = value);
+  }
+
+  void setShowDebugInfo({required bool value}) {
+    _update(() => _showDebugInfo = value);
+  }
+
   void resetToDefaults() {
     _update(() {
       _defaultPlaybackSpeed = defaultPlaybackSpeedValue;
@@ -210,6 +261,10 @@ class AppSettingsController extends ChangeNotifier {
       _minMeasuredSpeedFactor = defaultMinMeasuredSpeedFactorValue;
       _maxMeasuredSpeedFactor = defaultMaxMeasuredSpeedFactorValue;
       _restThresholdSeconds = defaultRestThresholdSecondsValue;
+      _inputLatencyCompensationMs = defaultInputLatencyCompensationMsValue;
+      _loopPlayback = defaultLoopPlaybackValue;
+      _autoStopAllNotes = defaultAutoStopAllNotesValue;
+      _showDebugInfo = defaultShowDebugInfoValue;
     });
   }
 
@@ -228,6 +283,10 @@ class AppSettingsController extends ChangeNotifier {
     'minMeasuredSpeedFactor': _minMeasuredSpeedFactor,
     'maxMeasuredSpeedFactor': _maxMeasuredSpeedFactor,
     'restThresholdSeconds': _restThresholdSeconds,
+    'inputLatencyCompensationMs': _inputLatencyCompensationMs,
+    'loopPlayback': _loopPlayback,
+    'autoStopAllNotes': _autoStopAllNotes,
+    'showDebugInfo': _showDebugInfo,
   };
 
   void _normalizeMeasuredSpeedRange() {

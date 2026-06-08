@@ -97,14 +97,20 @@ class OnsetDetectorConfig {
   /// 有效 MIDI 音符范围上限
   final int maxMidiNote;
 
+  /// 输入延迟补偿（毫秒），用于手动修正麦克风/onset 时间戳
+  final int inputLatencyCompensationMs;
+
   const OnsetDetectorConfig({
     this.volumeThreshold = 0.0005,
     this.precisionThreshold = 0.5,
     this.debounceMs = 80,
     this.minMidiNote = 21, // A0
     this.maxMidiNote = 108, // C8
+    this.inputLatencyCompensationMs = 0,
   });
 }
+
+typedef PitchDebugCallback = void Function(PitchData data);
 
 /// Onset 检测器
 ///
@@ -114,6 +120,9 @@ class OnsetDetector {
   OnsetDetectorConfig _config;
   final _onsetController = StreamController<OnsetEvent>.broadcast();
   StreamSubscription<PitchData>? _pitchSubscription;
+
+  /// 调试观察回调：UI 可用于显示最近识别到的音高，不影响检测逻辑
+  PitchDebugCallback? onPitchData;
 
   /// 上一次触发 onset 的 MIDI 音符
   int _lastOnsetNote = -1;
@@ -171,6 +180,7 @@ class OnsetDetector {
   /// 处理单帧 pitch 数据 — 核心检测逻辑
   void _processPitchData(PitchData data) {
     if (_onsetController.isClosed) return;
+    onPitchData?.call(data);
 
     // 判断当前帧是否为有效音符
     final isValidFrame = _isValidPitch(data);
@@ -207,7 +217,9 @@ class OnsetDetector {
 
   /// 尝试发射 onset 事件（带去抖）
   void _tryEmitOnset(PitchData data) {
-    final now = data.timestamp;
+    final now = data.timestamp.add(
+      Duration(milliseconds: _config.inputLatencyCompensationMs),
+    );
     final elapsed = now.difference(_lastOnsetTime).inMilliseconds;
 
     // 同一音符的去抖
