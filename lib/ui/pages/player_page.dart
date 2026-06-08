@@ -7,13 +7,16 @@ import 'package:provider/provider.dart';
 
 import '../../core/follow/follow_mode_controller.dart';
 import '../../core/follow/follow_mode_session.dart';
+import '../../core/follow/onset_detector.dart';
 import '../../core/midi/midi_player.dart';
+import '../../core/settings/app_settings.dart';
 import '../theme/luxury_theme.dart';
 import '../widgets/performance_console.dart';
 import '../widgets/player_helpers.dart';
 import '../widgets/soundfont_banner.dart';
 import '../widgets/stage_console.dart';
 import '../widgets/track_salon.dart';
+import 'settings_page.dart';
 
 class PlayerPage extends StatelessWidget {
   const PlayerPage({super.key});
@@ -31,6 +34,20 @@ class PlayerPage extends StatelessWidget {
                 : displaySongTitle(player.songData!.fileName),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(0, 0),
+          onPressed: () => unawaited(
+            Navigator.of(context).push(
+              CupertinoPageRoute<void>(builder: (_) => const SettingsPage()),
+            ),
+          ),
+          child: const Icon(
+            CupertinoIcons.gear_alt_fill,
+            size: 18,
+            color: LuxuryPalette.goldBright,
           ),
         ),
       ),
@@ -202,11 +219,20 @@ class _PlayerBodyState extends State<_PlayerBody> {
       throw StateError('主旋律轨道不存在');
     }
 
+    final settings = context.read<AppSettingsController>();
+
     await _releaseFollowResources(resetPlayerSpeed: false);
 
+    final onsetDetector = OnsetDetector(config: settings.onsetDetectorConfig);
     final session = FollowModeSession.forMidi(
       player: player,
       melodyTrack: melodyTrack,
+      onsetDetector: onsetDetector,
+      followController: FollowModeController(
+        onsetDetector: onsetDetector,
+        config: settings.followModeConfig,
+      ),
+      config: settings.followSessionConfig,
     );
     _followSession = session;
 

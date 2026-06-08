@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 
 import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
+import '../../core/settings/app_settings.dart';
 import '../theme/luxury_theme.dart';
 import 'player_page.dart';
+import 'settings_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -39,10 +41,15 @@ class _HomePageState extends State<HomePage> {
 
       final player = context.read<MidiPlayerController>();
       player.loadSong(songData);
+      player.setSpeed(
+        context.read<AppSettingsController>().defaultPlaybackSpeed,
+      );
 
-      unawaited(Navigator.of(
-        context,
-      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
+      unawaited(
+        Navigator.of(
+          context,
+        ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
+      );
     } catch (e) {
       if (!mounted) return;
       _showError('无法解析 MIDI 文件: $e');
@@ -70,18 +77,38 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openPlayer() {
-    unawaited(Navigator.of(
-      context,
-    ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
+    unawaited(
+      Navigator.of(
+        context,
+      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
+    );
+  }
+
+  void _openSettings() {
+    unawaited(
+      Navigator.of(
+        context,
+      ).push(CupertinoPageRoute<void>(builder: (_) => const SettingsPage())),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final player = context.watch<MidiPlayerController>();
     return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(
+      navigationBar: CupertinoNavigationBar(
         border: null,
-        middle: Text('MIDI 伴奏'),
+        middle: const Text('MIDI 伴奏'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(0, 0),
+          onPressed: _openSettings,
+          child: const Icon(
+            CupertinoIcons.gear_alt_fill,
+            size: 18,
+            color: LuxuryPalette.goldBright,
+          ),
+        ),
       ),
       child: LuxuryBackdrop(
         child: SafeArea(
