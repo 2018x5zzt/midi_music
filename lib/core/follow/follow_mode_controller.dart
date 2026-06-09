@@ -78,6 +78,10 @@ typedef StateChangeCallback = void Function(FollowModeState state);
 /// 请求外部按播放位置重新对齐
 typedef RealignmentRequestCallback = void Function();
 
+/// 运行时错误回调，例如麦克风采集中断或 pitch 流异常。
+typedef FollowRuntimeErrorCallback =
+    void Function(Object error, StackTrace? stackTrace);
+
 // ============================================================
 // FollowModeController
 // ============================================================
@@ -119,6 +123,7 @@ class FollowModeController {
   SpeedChangeCallback? onSpeedChanged;
   StateChangeCallback? onStateChanged;
   RealignmentRequestCallback? onRealignmentRequested;
+  FollowRuntimeErrorCallback? onRuntimeError;
 
   // Getters
   FollowModeState get state => _state;
@@ -149,8 +154,11 @@ class FollowModeController {
 
     _resetFollowPosition(0);
 
-    _onsetSubscription?.cancel();
-    _onsetSubscription = _onsetDetector.onsetStream.listen(_handleOnset);
+    unawaited(_onsetSubscription?.cancel());
+    _onsetSubscription = _onsetDetector.onsetStream.listen(
+      _handleOnset,
+      onError: _handleOnsetError,
+    );
 
     _setState(FollowModeState.following);
   }
@@ -213,6 +221,12 @@ class FollowModeController {
     } else {
       _onNoteUnmatched(onset);
     }
+  }
+
+  void _handleOnsetError(Object error, StackTrace stackTrace) {
+    if (_state == FollowModeState.idle) return;
+    onRuntimeError?.call(error, stackTrace);
+    stop();
   }
 
   /// 音符匹配成功

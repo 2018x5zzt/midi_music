@@ -163,6 +163,7 @@ void main() {
     expect(followController.onSpeedChanged, isNull);
     expect(followController.onStateChanged, isNull);
     expect(followController.onRealignmentRequested, isNull);
+    expect(followController.onRuntimeError, isNull);
   });
 
   test('遇到长休止时暂停播放，下一次 onset 后恢复', () async {
@@ -346,6 +347,36 @@ void main() {
 
     await session.dispose();
   });
+
+  test('运行时 pitch 错误会上报并释放跟随会话', () async {
+    final pitchInput = _FakePitchInput();
+    final playbackTarget = _FakePlaybackTarget()..speed = 1.25;
+    final session = FollowModeSession(
+      playbackTarget: playbackTarget,
+      melodyTrack: _melodyTrack(),
+      pitchInput: pitchInput,
+    );
+    final errors = <Object>[];
+    final stackTraces = <StackTrace?>[];
+    session.onRuntimeError = (error, stackTrace) {
+      errors.add(error);
+      stackTraces.add(stackTrace);
+    };
+
+    await session.start();
+
+    final error = StateError('microphone disconnected');
+    final stackTrace = StackTrace.current;
+    pitchInput.emitError(error, stackTrace);
+    await pumpEventQueue();
+
+    expect(errors, contains(error));
+    expect(stackTraces, contains(stackTrace));
+    expect(pitchInput.disposed, isTrue);
+    expect(session.state, FollowModeState.idle);
+    expect(session.isActive, isFalse);
+    expect(playbackTarget.speed, 1.0);
+  });
 }
 
 MidiTrackInfo _melodyTrack() {
@@ -424,6 +455,10 @@ class _FakePitchInput implements PitchInput {
 
   void emit(PitchData data) {
     _controller.add(data);
+  }
+
+  void emitError(Object error, StackTrace stackTrace) {
+    _controller.addError(error, stackTrace);
   }
 
   @override

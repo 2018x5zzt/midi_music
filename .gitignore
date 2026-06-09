@@ -17,3 +17,8 @@ build/
 
 # Spec workflow (AI tooling)
 .spec-workflow/
+
+# Android signing secrets
+android/key.properties
+*.jks
+*.keystore

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../follow/follow_mode_controller.dart';
 import '../follow/follow_mode_session.dart';
 import '../follow/onset_detector.dart';
+import 'song_session_models.dart';
 
 abstract class AppSettingsStorage {
   Future<Map<String, Object?>> read();
@@ -16,35 +17,78 @@ abstract class AppSettingsStorage {
 
 class FileAppSettingsStorage implements AppSettingsStorage {
   static const _fileName = 'settings.json';
+  static const _backupFileName = 'settings.backup.json';
+
+  final Future<Directory> Function() _directoryProvider;
+
+  FileAppSettingsStorage({Future<Directory> Function()? directoryProvider})
+    : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory;
 
   @override
   Future<Map<String, Object?>> read() async {
     final file = await _settingsFile();
-    if (!await file.exists()) {
-      return const {};
+    final backupFile = await _backupFile();
+
+    try {
+      if (await file.exists()) {
+        return await _readJsonMap(file);
+      }
+    } catch (_) {
+      // Fall through to backup recovery.
     }
 
-    final decoded = jsonDecode(await file.readAsString());
-    if (decoded is! Map) {
-      return const {};
-    }
-    return Map<String, Object?>.from(decoded);
+    try {
+      if (await backupFile.exists()) {
+        return await _readJsonMap(backupFile);
+      }
+    } catch (_) {}
+
+    return const {};
   }
 
   @override
   Future<void> write(Map<String, Object?> values) async {
     final file = await _settingsFile();
+    final backupFile = await _backupFile();
+    final tempFile = File('${file.path}.tmp');
     await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode(values));
+
+    if (await file.exists()) {
+      try {
+        await _readJsonMap(file);
+        await file.copy(backupFile.path);
+      } catch (_) {
+        // Do not replace a valid backup with a malformed primary file.
+      }
+    }
+
+    await tempFile.writeAsString(jsonEncode(values), flush: true);
+    await tempFile.rename(file.path);
+    await file.copy(backupFile.path);
   }
 
   Future<File> _settingsFile() async {
-    final directory = await getApplicationSupportDirectory();
+    final directory = await _directoryProvider();
     return File('${directory.path}/$_fileName');
+  }
+
+  Future<File> _backupFile() async {
+    final directory = await _directoryProvider();
+    return File('${directory.path}/$_backupFileName');
+  }
+
+  Future<Map<String, Object?>> _readJsonMap(File file) async {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map) {
+      throw const FormatException('Settings JSON must be an object');
+    }
+    return Map<String, Object?>.from(decoded);
   }
 }
 
 class AppSettingsController extends ChangeNotifier {
+  static const int settingsSchemaVersion = 1;
+  static const int maxRecentMidiEntries = 20;
   static const double defaultPlaybackSpeedValue = 1.0;
   static const double defaultMicrophoneMinPrecisionValue = 0.6;
   static const double defaultOnsetVolumeThresholdValue = 0.0005;
@@ -72,7 +116,11 @@ class AppSettingsController extends ChangeNotifier {
   bool _loopPlayback = defaultLoopPlaybackValue;
   bool _autoStopAllNotes = defaultAutoStopAllNotesValue;
   bool _showDebugInfo = defaultShowDebugInfoValue;
+  List<RecentMidiEntry> _recentMidiEntries = const [];
+  Map<String, MidiSessionSnapshot> _songSessions = const {};
   bool _isLoaded = false;
+  Future<void> _pendingWrite = Future<void>.value();
+  Object? _lastPersistenceError;
 
   AppSettingsController({AppSettingsStorage? storage})
     : _storage = storage ?? FileAppSettingsStorage();
@@ -89,7 +137,10 @@ class AppSettingsController extends ChangeNotifier {
   bool get loopPlayback => _loopPlayback;
   bool get autoStopAllNotes => _autoStopAllNotes;
   bool get showDebugInfo => _showDebugInfo;
+  List<RecentMidiEntry> get recentMidiEntries =>
+      List.unmodifiable(_recentMidiEntries);
   bool get isLoaded => _isLoaded;
+  Object? get lastPersistenceError => _lastPersistenceError;
 
   FollowModeSessionConfig get followSessionConfig =>
       FollowModeSessionConfig(minPrecision: _microphoneMinPrecision);
@@ -188,8 +239,11 @@ class AppSettingsController extends ChangeNotifier {
         'showDebugInfo',
         defaultShowDebugInfoValue,
       );
+      _recentMidiEntries = _readRecentMidiEntries(values);
+      _songSessions = _readSongSessions(values, _recentMidiEntries);
       _normalizeMeasuredSpeedRange();
-    } catch (_) {
+    } catch (error) {
+      _lastPersistenceError = error;
       // Keep safe defaults if the settings file is missing or malformed.
     } finally {
       _isLoaded = true;
@@ -251,6 +305,100 @@ class AppSettingsController extends ChangeNotifier {
     _update(() => _showDebugInfo = value);
   }
 
+  MidiSessionSnapshot? sessionForSong(String songId) => _songSessions[songId];
+
+  void recordMidiImported(RecentMidiEntry entry) {
+    _update(() {
+      final nowMs = _nowMs();
+      final existing = _recentMidiEntries.where((item) => item.id == entry.id);
+      final importedAtMs = existing.isEmpty
+          ? entry.importedAtMs
+          : existing.first.importedAtMs;
+      final updatedEntry = entry.copyWith(
+        importedAtMs: importedAtMs,
+        lastOpenedAtMs: nowMs,
+      );
+      _recentMidiEntries = [
+        updatedEntry,
+        ..._recentMidiEntries.where((item) => item.id != entry.id),
+      ]..sort((a, b) => b.lastOpenedAtMs.compareTo(a.lastOpenedAtMs));
+      if (_recentMidiEntries.length > maxRecentMidiEntries) {
+        _recentMidiEntries = _recentMidiEntries
+            .take(maxRecentMidiEntries)
+            .toList();
+      }
+      _pruneSongSessions();
+    });
+  }
+
+  void saveSessionSnapshot(MidiSessionSnapshot snapshot) {
+    _update(() {
+      _songSessions = {
+        ..._songSessions,
+        snapshot.songId: snapshot.copyWith(updatedAtMs: _nowMs()),
+      };
+    });
+  }
+
+  void updateSongPosition(
+    String songId,
+    double currentTime, {
+    double? playbackSpeed,
+  }) {
+    _updateSession(songId, (session, nowMs) {
+      return session.copyWith(
+        currentTime: _clampDouble(currentTime, 0.0, (1 << 30).toDouble()),
+        playbackSpeed: playbackSpeed == null
+            ? session.playbackSpeed
+            : _clampDouble(playbackSpeed, 0.25, 4.0),
+        updatedAtMs: nowMs,
+      );
+    });
+  }
+
+  void setMelodyTrack(String songId, int? trackIndex) {
+    _updateSession(songId, (session, nowMs) {
+      return session.copyWith(melodyTrackIndex: trackIndex, updatedAtMs: nowMs);
+    });
+  }
+
+  void updateTrackPreference(
+    String songId,
+    int trackIndex,
+    TrackPreference preference,
+  ) {
+    _updateSession(songId, (session, nowMs) {
+      final preferences = Map<int, TrackPreference>.from(
+        session.trackPreferences,
+      );
+      preferences[trackIndex] = TrackPreference(
+        isMuted: preference.isMuted,
+        volume: _clampDouble(preference.volume, 0, 1),
+      );
+      return session.copyWith(
+        trackPreferences: preferences,
+        updatedAtMs: nowMs,
+      );
+    });
+  }
+
+  void removeRecentMidi(String songId) {
+    _update(() {
+      _recentMidiEntries = _recentMidiEntries
+          .where((entry) => entry.id != songId)
+          .toList();
+      _songSessions = Map<String, MidiSessionSnapshot>.from(_songSessions)
+        ..remove(songId);
+    });
+  }
+
+  void clearRecentMidi() {
+    _update(() {
+      _recentMidiEntries = const [];
+      _songSessions = const {};
+    });
+  }
+
   void resetToDefaults() {
     _update(() {
       _defaultPlaybackSpeed = defaultPlaybackSpeedValue;
@@ -268,13 +416,28 @@ class AppSettingsController extends ChangeNotifier {
     });
   }
 
+  Future<void> flush() => _pendingWrite;
+
   void _update(VoidCallback updateValues) {
     updateValues();
     notifyListeners();
-    unawaited(_storage.write(_toJson()).catchError((Object _) {}));
+    _enqueueWrite(_toJson());
+  }
+
+  void _enqueueWrite(Map<String, Object?> values) {
+    _pendingWrite = _pendingWrite.then((_) async {
+      try {
+        await _storage.write(values);
+        _lastPersistenceError = null;
+      } catch (error) {
+        _lastPersistenceError = error;
+      }
+    });
+    unawaited(_pendingWrite);
   }
 
   Map<String, Object?> _toJson() => {
+    'schemaVersion': settingsSchemaVersion,
     'defaultPlaybackSpeed': _defaultPlaybackSpeed,
     'microphoneMinPrecision': _microphoneMinPrecision,
     'onsetVolumeThreshold': _onsetVolumeThreshold,
@@ -287,7 +450,68 @@ class AppSettingsController extends ChangeNotifier {
     'loopPlayback': _loopPlayback,
     'autoStopAllNotes': _autoStopAllNotes,
     'showDebugInfo': _showDebugInfo,
+    'recentMidiEntries': _recentMidiEntries
+        .map((entry) => entry.toJson())
+        .toList(),
+    'songSessions': _songSessions.map(
+      (key, value) => MapEntry(key, value.toJson()),
+    ),
   };
+
+  void _updateSession(
+    String songId,
+    MidiSessionSnapshot Function(MidiSessionSnapshot session, int nowMs) update,
+  ) {
+    _update(() {
+      final nowMs = _nowMs();
+      final current =
+          _songSessions[songId] ?? MidiSessionSnapshot.empty(songId, nowMs);
+      _songSessions = {..._songSessions, songId: update(current, nowMs)};
+    });
+  }
+
+  List<RecentMidiEntry> _readRecentMidiEntries(Map<String, Object?> values) {
+    final raw = values['recentMidiEntries'];
+    if (raw is! List) return const [];
+    final entries = <RecentMidiEntry>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      try {
+        entries.add(RecentMidiEntry.fromJson(Map<String, Object?>.from(item)));
+      } catch (_) {}
+    }
+    entries.sort((a, b) => b.lastOpenedAtMs.compareTo(a.lastOpenedAtMs));
+    return entries.take(maxRecentMidiEntries).toList();
+  }
+
+  Map<String, MidiSessionSnapshot> _readSongSessions(
+    Map<String, Object?> values,
+    List<RecentMidiEntry> recentEntries,
+  ) {
+    final raw = values['songSessions'];
+    if (raw is! Map) return const {};
+    final recentIds = recentEntries.map((entry) => entry.id).toSet();
+    final sessions = <String, MidiSessionSnapshot>{};
+    for (final entry in raw.entries) {
+      final songId = entry.key.toString();
+      final value = entry.value;
+      if (!recentIds.contains(songId) || value is! Map) continue;
+      try {
+        sessions[songId] = MidiSessionSnapshot.fromJson(
+          Map<String, Object?>.from(value),
+        );
+      } catch (_) {}
+    }
+    return sessions;
+  }
+
+  void _pruneSongSessions() {
+    final recentIds = _recentMidiEntries.map((entry) => entry.id).toSet();
+    _songSessions = Map<String, MidiSessionSnapshot>.from(_songSessions)
+      ..removeWhere((songId, _) => !recentIds.contains(songId));
+  }
+
+  int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 
   void _normalizeMeasuredSpeedRange() {
     if (_minMeasuredSpeedFactor > _maxMeasuredSpeedFactor) {

@@ -37,6 +37,7 @@ class FollowModeSession {
 
   SpeedChangeCallback? onSpeedChanged;
   StateChangeCallback? onStateChanged;
+  FollowRuntimeErrorCallback? onRuntimeError;
 
   FollowModeState get state => _state;
   double get speedFactor => _speedFactor;
@@ -134,6 +135,7 @@ class FollowModeSession {
     _followController.onSpeedChanged = _handleSpeedChanged;
     _followController.onStateChanged = _handleStateChanged;
     _followController.onRealignmentRequested = _handleRealignmentRequested;
+    _followController.onRuntimeError = _handleRuntimeError;
     _followController.loadScore(_melodyTrack.notes);
     _onsetDetector.attachPitchStream(_pitchInput.pitchStream);
 
@@ -157,6 +159,7 @@ class FollowModeSession {
       }
       _started = true;
     } catch (_) {
+      _starting = false;
       await dispose(resetPlayerSpeed: false);
       rethrow;
     } finally {
@@ -191,6 +194,7 @@ class FollowModeSession {
     _followController.onSpeedChanged = null;
     _followController.onStateChanged = null;
     _followController.onRealignmentRequested = null;
+    _followController.onRuntimeError = null;
   }
 
   void resumeFromTime(double currentTimeSeconds) {
@@ -201,6 +205,12 @@ class FollowModeSession {
   void _handleRealignmentRequested() {
     if (_disposed || !_started) return;
     _followController.resumeFromTime(_playbackTarget.currentTime);
+  }
+
+  void _handleRuntimeError(Object error, StackTrace? stackTrace) {
+    if (_disposed) return;
+    onRuntimeError?.call(error, stackTrace);
+    unawaited(dispose().catchError((Object _) {}));
   }
 
   void _handleSpeedChanged(double speedFactor) {

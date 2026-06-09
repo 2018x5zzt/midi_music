@@ -62,7 +62,10 @@ void main() {
     final track = song.noteTracks.single;
     expect(track.programByChannel[0], 40);
     expect(track.channels, contains(0));
-    expect(song.timeline.any((e) => e.type == MidiEventType.programChange), isTrue);
+    expect(
+      song.timeline.any((e) => e.type == MidiEventType.programChange),
+      isTrue,
+    );
   });
 
   test('Format 0 零力度 NoteOn 视为 NoteOff', () {
@@ -90,7 +93,20 @@ void main() {
         // Track 0: no notes, only meta
         [0x00, 0xFF, 0x2F, 0x00],
         // Track 1: two notes
-        [0x00, 0x90, 0x40, 0x60, 0x3C, 0x80, 0x40, 0x00, 0x00, 0xFF, 0x2F, 0x00],
+        [
+          0x00,
+          0x90,
+          0x40,
+          0x60,
+          0x3C,
+          0x80,
+          0x40,
+          0x00,
+          0x00,
+          0xFF,
+          0x2F,
+          0x00,
+        ],
       ]),
     );
 
@@ -187,7 +203,13 @@ void main() {
         0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20,
         // note on/off with 480 ticks = 1 beat = 0.5s at 120bpm
         0x00, 0x90, 0x3C, 0x50,
-        0x00, 0xFF, 0x51, 0x03, 0x0F, 0x42, 0x40, // tempo 60 BPM (1000000 us/beat)
+        0x00,
+        0xFF,
+        0x51,
+        0x03,
+        0x0F,
+        0x42,
+        0x40, // tempo 60 BPM (1000000 us/beat)
         0x82, 0x00, 0x80, 0x3C, 0x00, // note off after ~480 ticks
         0x00, 0xFF, 0x2F, 0x00,
       ]),
@@ -202,9 +224,18 @@ void main() {
   test('无 tempo 事件时使用默认 120 BPM', () {
     final song = _parse(
       _fmt0Midi([
-        0x00, 0x90, 0x40, 0x60,
-        0x3C, 0x80, 0x40, 0x00,
-        0x00, 0xFF, 0x2F, 0x00,
+        0x00,
+        0x90,
+        0x40,
+        0x60,
+        0x3C,
+        0x80,
+        0x40,
+        0x00,
+        0x00,
+        0xFF,
+        0x2F,
+        0x00,
       ]),
     );
 
@@ -255,9 +286,7 @@ void main() {
   // ============================================================
 
   test('空轨道不崩溃', () {
-    final song = _parse(
-      _fmt0Midi([0x00, 0xFF, 0x2F, 0x00]),
-    );
+    final song = _parse(_fmt0Midi([0x00, 0xFF, 0x2F, 0x00]));
 
     expect(song.tracks, hasLength(1));
     expect(song.noteTracks, isEmpty);
@@ -358,36 +387,11 @@ void main() {
 /// 真实古典 MIDI 文件回归测试
 void _runRealFileTests() {
   const fixtures = [
-    (
-      'assets/midi/Beethoven-Moonlight-Sonata.mid',
-      '贝多芬月光奏鸣曲',
-      4,
-      100,
-    ),
-    (
-      'assets/midi/bach_wtc1_prelude.mid',
-      '巴赫平均律 C大调前奏曲',
-      3,
-      50,
-    ),
-    (
-      'assets/midi/mozart_k545.mid',
-      '莫扎特钢琴奏鸣曲 K545',
-      2,
-      80,
-    ),
-    (
-      'assets/midi/chopin_nocturne.mid',
-      '肖邦夜曲',
-      2,
-      30,
-    ),
-    (
-      'assets/midi/beethoven_moonlight_2.mid',
-      '贝多芬月光第二乐章',
-      2,
-      20,
-    ),
+    ('assets/midi/Beethoven-Moonlight-Sonata.mid', '贝多芬月光奏鸣曲', 4, 100),
+    ('assets/midi/bach_wtc1_prelude.mid', '巴赫平均律 C大调前奏曲', 3, 50),
+    ('assets/midi/mozart_k545.mid', '莫扎特钢琴奏鸣曲 K545', 2, 80),
+    ('assets/midi/chopin_nocturne.mid', '肖邦夜曲', 2, 30),
+    ('assets/midi/beethoven_moonlight_2.mid', '贝多芬月光第二乐章', 2, 20),
   ];
 
   for (final f in fixtures) {
@@ -405,21 +409,31 @@ void _runRealFileTests() {
       expect(song.totalTicks, greaterThan(0));
       expect(song.totalDuration, greaterThan(0));
 
-      final totalNotes =
-          song.tracks.fold<int>(0, (sum, t) => sum + t.notes.length);
-      expect(totalNotes, greaterThanOrEqualTo(minNotes),
-          reason: '期望至少 $minNotes 个音符，实际 $totalNotes');
+      final totalNotes = song.tracks.fold<int>(
+        0,
+        (sum, t) => sum + t.notes.length,
+      );
+      expect(
+        totalNotes,
+        greaterThanOrEqualTo(minNotes),
+        reason: '期望至少 $minNotes 个音符，实际 $totalNotes',
+      );
 
       expect(song.timeline, isNotEmpty);
       for (var i = 1; i < song.timeline.length; i++) {
-        expect(song.timeline[i].tick,
-            greaterThanOrEqualTo(song.timeline[i - 1].tick),
-            reason: '时间线未按 tick 排序（索引 $i）');
+        expect(
+          song.timeline[i].tick,
+          greaterThanOrEqualTo(song.timeline[i - 1].tick),
+          reason: '时间线未按 tick 排序（索引 $i）',
+        );
       }
 
       final lastEventTime = song.timeline.last.time;
-      expect(lastEventTime, lessThanOrEqualTo(song.totalDuration + 0.001),
-          reason: '最后事件时间超出总时长');
+      expect(
+        lastEventTime,
+        lessThanOrEqualTo(song.totalDuration + 0.001),
+        reason: '最后事件时间超出总时长',
+      );
     });
   }
 
@@ -429,10 +443,16 @@ void _runRealFileTests() {
       final file = File(path);
       if (!file.existsSync()) continue;
       final song = await MidiFileParser().parseFile(path);
-      expect(song.initialBpm, greaterThan(0),
-          reason: '$label 的 initialBpm 应为正数');
-      expect(song.initialBpm, lessThan(300),
-          reason: '$label 的 initialBpm 异常偏高');
+      expect(
+        song.initialBpm,
+        greaterThan(0),
+        reason: '$label 的 initialBpm 应为正数',
+      );
+      expect(
+        song.initialBpm,
+        lessThan(300),
+        reason: '$label 的 initialBpm 异常偏高',
+      );
     }
   });
 }

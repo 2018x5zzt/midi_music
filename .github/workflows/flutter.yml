@@ -29,11 +29,56 @@ jobs:
       - name: Show Flutter version
         run: flutter --version
 
+      - name: Verify release configuration
+        run: |
+          test -f pubspec.lock
+          python - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml').read_text()
+          if 'android.permission.INTERNET' not in manifest:
+              raise SystemExit('Android main manifest must declare INTERNET for release SoundFont downloads')
+
+          gradle = Path('android/app/build.gradle.kts').read_text()
+          if 'signingConfigs.getByName("debug")' in gradle:
+              raise SystemExit('Release build must not use debug signing')
+          PY
+
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed .
 
       - name: Analyze
         run: flutter analyze
 
       - name: Test
         run: flutter test
+
+      - name: Android debug build
+        run: flutter build apk --debug
+
+  ios-build:
+    runs-on: macos-latest
+
+    env:
+      PUB_HOSTED_URL: https://pub.flutter-io.cn
+      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.7"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: iOS no-codesign build
+        run: flutter build ios --release --no-codesign

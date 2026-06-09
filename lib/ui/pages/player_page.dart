@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 import '../../core/follow/follow_mode_controller.dart';
 import '../../core/follow/follow_mode_session.dart';
 import '../../core/follow/onset_detector.dart';
+import '../../core/diagnostics/app_error.dart';
+import '../../core/diagnostics/diagnostic_logger.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/settings/app_settings.dart';
 import '../theme/luxury_theme.dart';
@@ -86,12 +88,12 @@ class _EmptyStage extends StatelessWidget {
               const SectionEyebrow(label: 'NO SCORE LOADED'),
               const SizedBox(height: 18),
               Text(
-                '先导入一份 MIDI 乐谱。',
+                '先导入 MIDI 乐谱。',
                 style: luxuryDisplayStyle(context, size: 30),
               ),
               const SizedBox(height: 10),
               const Text(
-                '播放器已经就位，但当前还没有可演出的曲目。',
+                '当前没有可播放曲目。',
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.45,
@@ -115,7 +117,7 @@ class _PlayerBody extends StatefulWidget {
   State<_PlayerBody> createState() => _PlayerBodyState();
 }
 
-class _PlayerBodyState extends State<_PlayerBody> {
+class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
   FollowModeSession? _followSession;
   bool _isFollowMode = false;
   FollowModeState _followState = FollowModeState.idle;
@@ -127,22 +129,32 @@ class _PlayerBodyState extends State<_PlayerBody> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.player.onPlaybackError = _onPlaybackError;
   }
 
   void _onPlaybackError(Object error, String context) {
-    if (!mounted) return;
-    _errorDismissTimer?.cancel();
-    setState(() => _playbackError = '播放异常：$context');
-    _errorDismissTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted) {
-        setState(() => _playbackError = null);
-      }
-    });
+    _showTransientError('播放异常：$context');
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        return;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        if (_isFollowMode || _followSession != null) {
+          unawaited(_suspendFollowForLifecycle());
+        }
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _errorDismissTimer?.cancel();
     if (widget.player.onPlaybackError == _onPlaybackError) {
       widget.player.onPlaybackError = null;
@@ -161,8 +173,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
       return;
     }
 
-    if (_melodyTrackIndex == null) {
-      _showAlert('请先选择主旋律轨道', '先在轨道列表中指定主旋律，再开启实时跟随。');
+    if (!_canStartFollowMode()) {
       return;
     }
 
@@ -174,16 +185,64 @@ class _PlayerBodyState extends State<_PlayerBody> {
       if (mounted) {
         setState(() => _isFollowMode = true);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       await _stopFollowMode(updateUi: false);
+      final appError = _buildFollowStartError(e, stackTrace);
+      _recordDiagnosticError(appError);
       if (mounted) {
         setState(() {
           _isFollowMode = false;
           _followState = FollowModeState.idle;
           _followSpeedFactor = 1.0;
         });
-        _showAlert('跟随模式启动失败', '无法启动麦克风检测：$e');
+        _showAlert('跟随模式启动失败', appError.userMessage);
       }
+    }
+  }
+
+  bool _canStartFollowMode() {
+    final player = widget.player;
+    final song = player.songData;
+    if (song == null) {
+      _showAlert('请先导入乐谱', '请先加载 MIDI 乐谱。');
+      return false;
+    }
+    if (!player.isSoundfontReady) {
+      _showAlert('音色库未就绪', _soundfontGuardMessage(player));
+      return false;
+    }
+    final melodyTrackIndex = _melodyTrackIndex;
+    if (melodyTrackIndex == null) {
+      _showAlert('请选择主旋律', '先在轨道列表中指定主旋律。');
+      return false;
+    }
+    final melodyTrack = FollowModeSession.findMelodyTrack(
+      song,
+      melodyTrackIndex,
+    );
+    if (melodyTrack == null) {
+      _showAlert('主旋律不可用', '所选轨道不存在，请重新选择。');
+      return false;
+    }
+    if (melodyTrack.notes.isEmpty) {
+      _showAlert('主旋律为空', '所选轨道没有可跟随的音符。');
+      return false;
+    }
+    return true;
+  }
+
+  String _soundfontGuardMessage(MidiPlayerController player) {
+    switch (player.soundfontState) {
+      case SoundfontSetupState.checking:
+        return '正在检查音色库，请稍后再试。';
+      case SoundfontSetupState.downloading:
+        return '音色库下载中，请完成后再试。';
+      case SoundfontSetupState.failed:
+        return player.soundfontErrorMessage ?? '音色库准备失败，请在设置页重试。';
+      case SoundfontSetupState.idle:
+        return '音色库尚未准备完成。';
+      case SoundfontSetupState.ready:
+        return '音色库尚未就绪，请稍后重试。';
     }
   }
 
@@ -191,13 +250,46 @@ class _PlayerBodyState extends State<_PlayerBody> {
     var status = await Permission.microphone.status;
     if (status.isGranted) return true;
 
+    if (status.isPermanentlyDenied || status.isRestricted) {
+      _handleMicPermissionDenied(status);
+      return false;
+    }
+
     status = await Permission.microphone.request();
     if (status.isGranted) return true;
 
-    if (mounted) {
-      _showAlert('需要麦克风权限', '跟随模式会通过麦克风识别起拍和速度，请在系统设置中允许访问。');
-    }
+    _handleMicPermissionDenied(status);
     return false;
+  }
+
+  void _handleMicPermissionDenied(PermissionStatus status) {
+    final appError = AppError.microphonePermissionDenied(status: status.name);
+    _recordDiagnosticError(appError);
+    if (!mounted) return;
+
+    if (status.isPermanentlyDenied) {
+      _showAlert(
+        '需要麦克风权限',
+        appError.userMessage,
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('稍后'),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () {
+              Navigator.of(context).pop();
+              unawaited(openAppSettings());
+            },
+            child: const Text('打开设置'),
+          ),
+        ],
+      );
+      return;
+    }
+
+    _showAlert('需要麦克风权限', appError.userMessage);
   }
 
   Future<void> _startFollowMode() async {
@@ -206,6 +298,9 @@ class _PlayerBodyState extends State<_PlayerBody> {
     final melodyTrackIndex = _melodyTrackIndex;
     if (song == null) {
       throw StateError('未加载 MIDI 乐谱');
+    }
+    if (!player.isSoundfontReady) {
+      throw StateError('音色库未就绪');
     }
     if (melodyTrackIndex == null) {
       throw StateError('未选择主旋律轨道');
@@ -235,6 +330,10 @@ class _PlayerBodyState extends State<_PlayerBody> {
       config: settings.followSessionConfig,
     );
     _followSession = session;
+
+    session.onRuntimeError = (error, stackTrace) {
+      _handleFollowRuntimeError(session, error, stackTrace);
+    };
 
     session.onSpeedChanged = (speed) {
       if (mounted) {
@@ -287,6 +386,18 @@ class _PlayerBodyState extends State<_PlayerBody> {
     }
   }
 
+  Future<void> _suspendFollowForLifecycle() async {
+    await _releaseFollowResources();
+
+    if (!mounted) return;
+    setState(() {
+      _isFollowMode = false;
+      _followState = FollowModeState.idle;
+      _followSpeedFactor = 1.0;
+    });
+    _showTransientError('跟随已暂停，请回到前台后重新开启。');
+  }
+
   Future<void> _releaseFollowResources({bool resetPlayerSpeed = true}) async {
     final session = _followSession;
     _followSession = null;
@@ -301,19 +412,76 @@ class _PlayerBodyState extends State<_PlayerBody> {
     _followSession?.resumeFromTime(player.currentTime);
   }
 
-  void _showAlert(String title, String message) {
+  void _handleFollowRuntimeError(
+    FollowModeSession session,
+    Object error,
+    StackTrace? stackTrace,
+  ) {
+    final appError = AppError.followRuntimeFailed(
+      cause: error,
+      stackTrace: stackTrace,
+    );
+    _recordDiagnosticError(appError);
+    if (!mounted) return;
+
+    _errorDismissTimer?.cancel();
+    setState(() {
+      if (_followSession == session) {
+        _followSession = null;
+      }
+      _isFollowMode = false;
+      _followState = FollowModeState.idle;
+      _followSpeedFactor = 1.0;
+      _playbackError = appError.userMessage;
+    });
+    _errorDismissTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) {
+        setState(() => _playbackError = null);
+      }
+    });
+  }
+
+  AppError _buildFollowStartError(Object error, StackTrace stackTrace) {
+    if (error is StateError) {
+      return AppError.followModeFailed(
+        message: '无法开启跟随，请检查曲目、音色库和主旋律。',
+        cause: error,
+        stackTrace: stackTrace,
+      );
+    }
+    return AppError.microphoneInitFailed(cause: error, stackTrace: stackTrace);
+  }
+
+  void _recordDiagnosticError(AppError error) {
+    unawaited(DiagnosticLogger.instance.recordError(error));
+  }
+
+  void _showTransientError(String message) {
+    if (!mounted) return;
+    _errorDismissTimer?.cancel();
+    setState(() => _playbackError = message);
+    _errorDismissTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) {
+        setState(() => _playbackError = null);
+      }
+    });
+  }
+
+  void _showAlert(String title, String message, {List<Widget>? actions}) {
     showCupertinoDialog<void>(
       context: context,
       builder: (ctx) => CupertinoAlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: [
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('好的'),
-          ),
-        ],
+        actions:
+            actions ??
+            [
+              CupertinoDialogAction(
+                isDefaultAction: true,
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('好的'),
+              ),
+            ],
       ),
     );
   }

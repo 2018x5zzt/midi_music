@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 首次准备 SoundFont 需要在 release 包中联网下载音色库 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- 变速跟随模式需要麦克风权限进行 onset detection -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application

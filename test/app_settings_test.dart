@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
 
@@ -41,13 +43,17 @@ void main() {
 
     settings.setDefaultPlaybackSpeed(2.5);
     settings.setAllowOctaveError(value: false);
-    await pumpEventQueue();
+    await settings.flush();
 
     expect(storage.values['defaultPlaybackSpeed'], 2.5);
     expect(storage.values['allowOctaveError'], isFalse);
+    expect(
+      storage.values['schemaVersion'],
+      AppSettingsController.settingsSchemaVersion,
+    );
 
     settings.resetToDefaults();
-    await pumpEventQueue();
+    await settings.flush();
 
     expect(
       storage.values['defaultPlaybackSpeed'],
@@ -58,13 +64,74 @@ void main() {
       AppSettingsController.defaultAllowOctaveErrorValue,
     );
   });
+
+  test('flush 会等待串行写入并保留最后一次状态', () async {
+    final storage = _DelayedMemorySettingsStorage(
+      writeDelay: const Duration(milliseconds: 5),
+    );
+    final settings = AppSettingsController(storage: storage);
+
+    settings.setDefaultPlaybackSpeed(1.25);
+    settings.setDefaultPlaybackSpeed(2.75);
+    settings.setAllowOctaveError(value: false);
+    await settings.flush();
+
+    expect(storage.maxConcurrentWrites, 1);
+    expect(storage.writeCount, 3);
+    expect(storage.values['defaultPlaybackSpeed'], 2.75);
+    expect(storage.values['allowOctaveError'], isFalse);
+    expect(settings.lastPersistenceError, isNull);
+  });
+
+  test('写入失败会记录错误，后续 flush 可恢复', () async {
+    final storage = _MemorySettingsStorage(failNextWrite: true);
+    final settings = AppSettingsController(storage: storage);
+
+    settings.setDefaultPlaybackSpeed(1.5);
+    await settings.flush();
+
+    expect(settings.lastPersistenceError, isNotNull);
+    expect(storage.values['defaultPlaybackSpeed'], isNull);
+
+    settings.setDefaultPlaybackSpeed(2.0);
+    await settings.flush();
+
+    expect(settings.lastPersistenceError, isNull);
+    expect(storage.values['defaultPlaybackSpeed'], 2.0);
+  });
+
+  test('文件存储在主文件损坏时从 backup 恢复', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'midi_music_settings_test_',
+    );
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final storage = FileAppSettingsStorage(
+      directoryProvider: () async {
+        return directory;
+      },
+    );
+
+    await storage.write({'defaultPlaybackSpeed': 1.75});
+    await File('${directory.path}/settings.json').writeAsString('not-json');
+
+    final values = await storage.read();
+
+    expect(values['defaultPlaybackSpeed'], 1.75);
+  });
 }
 
 class _MemorySettingsStorage implements AppSettingsStorage {
   Map<String, Object?> values;
+  bool failNextWrite;
 
-  _MemorySettingsStorage({Map<String, Object?>? initialValues})
-    : values = Map<String, Object?>.from(initialValues ?? const {});
+  _MemorySettingsStorage({
+    Map<String, Object?>? initialValues,
+    this.failNextWrite = false,
+  }) : values = Map<String, Object?>.from(initialValues ?? const {});
 
   @override
   Future<Map<String, Object?>> read() async =>
@@ -72,6 +139,34 @@ class _MemorySettingsStorage implements AppSettingsStorage {
 
   @override
   Future<void> write(Map<String, Object?> values) async {
+    if (failNextWrite) {
+      failNextWrite = false;
+      throw StateError('simulated write failure');
+    }
     this.values = Map<String, Object?>.from(values);
+  }
+}
+
+class _DelayedMemorySettingsStorage extends _MemorySettingsStorage {
+  final Duration writeDelay;
+  int _activeWrites = 0;
+  int maxConcurrentWrites = 0;
+  int writeCount = 0;
+
+  _DelayedMemorySettingsStorage({required this.writeDelay});
+
+  @override
+  Future<void> write(Map<String, Object?> values) async {
+    _activeWrites++;
+    writeCount++;
+    if (_activeWrites > maxConcurrentWrites) {
+      maxConcurrentWrites = _activeWrites;
+    }
+    try {
+      await Future<void>.delayed(writeDelay);
+      await super.write(values);
+    } finally {
+      _activeWrites--;
+    }
   }
 }

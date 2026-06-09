@@ -16,11 +16,7 @@ Color followAccent(bool isFollowMode, FollowModeState state, bool isPlaying) {
 }
 
 /// 跟随状态对应的中文标签
-String followLabel(
-  bool isFollowMode,
-  FollowModeState state,
-  bool isPlaying,
-) {
+String followLabel(bool isFollowMode, FollowModeState state, bool isPlaying) {
   if (!isFollowMode) {
     return isPlaying ? '手动播放' : '待机';
   }

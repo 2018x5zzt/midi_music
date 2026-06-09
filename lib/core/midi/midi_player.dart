@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../diagnostics/app_error.dart';
+import '../diagnostics/diagnostic_logger.dart';
 import '../../models/midi_track.dart';
 import 'midi_engine.dart';
 import 'tempo_map.dart';
@@ -25,6 +27,8 @@ const _kDefaultSoundfontUrls = [
 
 /// 播放异常回调：引擎操作失败时触发，UI 可据此展示轻量提示
 typedef PlaybackErrorCallback = void Function(Object error, String context);
+typedef AppErrorCallback = void Function(AppError error);
+typedef LoopWrappedCallback = void Function(double loopStartTime);
 
 /// MIDI 播放控制器
 ///
@@ -37,8 +41,12 @@ class MidiPlayerController extends ChangeNotifier {
 
   /// 播放过程中的异常回调（可选），例如引擎 noteOn 失败
   PlaybackErrorCallback? onPlaybackError;
+  AppErrorCallback? onDiagnosticError;
+  LoopWrappedCallback? onLoopWrapped;
   MidiSongData? _songData;
   TempoMap? _tempoMap;
+  String? _currentSongId;
+  String? _currentFilePath;
 
   PlaybackState _state = PlaybackState.stopped;
   SoundfontSetupState _soundfontState = SoundfontSetupState.idle;
@@ -52,6 +60,10 @@ class MidiPlayerController extends ChangeNotifier {
   DateTime? _lastPlaybackUiNotifyTime;
   Future<void>? _soundfontSetupFuture;
   String? _soundfontErrorMessage;
+  AppError? _lastDiagnosticError;
+  double? _loopStartTime;
+  double? _loopEndTime;
+  bool _isLoopEnabled = false;
   bool _isDisposed = false;
 
   MidiPlayerController({
@@ -70,12 +82,32 @@ class MidiPlayerController extends ChangeNotifier {
   double get currentTime => _currentTime;
   double get playbackSpeed => _playbackSpeed;
   MidiSongData? get songData => _songData;
+  String? get currentSongId => _currentSongId;
+  String? get currentFilePath => _currentFilePath;
+  TempoMap? get tempoMap => _tempoMap;
   MidiPlaybackEngine get engine => _engine;
   bool get isReady => _engine.isReady && _songData != null;
   SoundfontSetupState get soundfontState => _soundfontState;
   double get soundfontDownloadProgress => _soundfontDownloadProgress;
   String? get soundfontErrorMessage => _soundfontErrorMessage;
+  AppError? get lastDiagnosticError => _lastDiagnosticError;
   bool get isSoundfontReady => _engine.isReady;
+  double? get loopStartTime => _loopStartTime;
+  double? get loopEndTime => _loopEndTime;
+  bool get isLoopEnabled => _isLoopEnabled;
+  bool get hasValidLoopRange =>
+      _loopStartTime != null &&
+      _loopEndTime != null &&
+      _loopStartTime! < _loopEndTime! &&
+      _loopEndTime! <= totalDuration;
+
+  int get currentTick {
+    final tempoMap = _tempoMap;
+    if (tempoMap == null) return 0;
+    return tempoMap
+        .secondsToTick(_currentTime)
+        .clamp(0, _songData?.totalTicks ?? 0);
+  }
 
   /// 总时长（秒）
   double get totalDuration => _songData?.totalDuration ?? 0.0;
@@ -92,6 +124,10 @@ class MidiPlayerController extends ChangeNotifier {
     final tick = _tempoMap!.secondsToTick(_currentTime);
     return _tempoMap!.getBpmAtTick(tick);
   }
+
+  double tickToSeconds(int tick) => _tempoMap?.tickToSeconds(tick) ?? 0.0;
+
+  int secondsToTick(double seconds) => _tempoMap?.secondsToTick(seconds) ?? 0;
 
   /// 加载 SoundFont
   Future<void> loadSoundfont(String assetPath) async {
@@ -151,10 +187,17 @@ class MidiPlayerController extends ChangeNotifier {
       await _downloadConfiguredSoundfont(soundfontFile);
       if (_isDisposed) return;
       await _loadDownloadedSoundfont(soundfontFile);
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (_isDisposed) return;
       _soundfontState = SoundfontSetupState.failed;
       _soundfontErrorMessage = _describeSoundfontError(e);
+      _recordDiagnosticError(
+        AppError.soundfontSetupFailed(
+          cause: e,
+          stackTrace: stackTrace,
+          retryable: true,
+        ),
+      );
       _notifyListenersIfActive();
     }
   }
@@ -164,10 +207,13 @@ class MidiPlayerController extends ChangeNotifier {
   }
 
   /// 加载歌曲数据
-  void loadSong(MidiSongData song) {
+  void loadSong(MidiSongData song, {String? songId, String? filePath}) {
     if (_isDisposed) return;
     stop();
     _songData = song;
+    _currentSongId = songId;
+    _currentFilePath = filePath;
+    _clearLoop(notify: false);
     _tempoMap = TempoMap(
       ticksPerBeat: song.ticksPerBeat,
       tempoChanges: song.tempoChanges,
@@ -199,7 +245,7 @@ class MidiPlayerController extends ChangeNotifier {
     _ticker?.cancel();
     _ticker = null;
     _lastPlaybackUiNotifyTime = null;
-    unawaited(_engine.allNotesOff());
+    _safeAllNotesOff('Pause allNotesOff');
     _clearActiveNotes();
     _notifyListenersIfActive();
   }
@@ -213,7 +259,7 @@ class MidiPlayerController extends ChangeNotifier {
     _lastPlaybackUiNotifyTime = null;
     _currentTime = 0.0;
     _currentEventIndex = 0;
-    unawaited(_engine.allNotesOff());
+    _safeAllNotesOff('Stop allNotesOff');
     _clearActiveNotes();
     _notifyListenersIfActive();
   }
@@ -222,13 +268,14 @@ class MidiPlayerController extends ChangeNotifier {
   void seekTo(double seconds) {
     if (_isDisposed) return;
     final wasPlaying = isPlaying;
-    if (wasPlaying) pause();
+    if (wasPlaying) {
+      _state = PlaybackState.paused;
+      _ticker?.cancel();
+      _ticker = null;
+      _lastPlaybackUiNotifyTime = null;
+    }
 
-    _currentTime = seconds.clamp(0.0, totalDuration);
-    unawaited(_engine.allNotesOff());
-    _clearActiveNotes();
-    _updateEventIndex();
-    _applyProgramStateAtCurrentPosition();
+    _jumpTo(seconds, notify: false, context: 'Seek allNotesOff');
 
     if (wasPlaying) play();
     _notifyListenersIfActive();
@@ -258,12 +305,51 @@ class MidiPlayerController extends ChangeNotifier {
     if (_isDisposed) return;
     final track = _trackByIndex(trackIndex);
     if (track == null) return;
-    track.isMuted = !track.isMuted;
+    setTrackMute(trackIndex, isMuted: !track.isMuted);
+  }
+
+  /// 设置轨道静音状态，便于会话恢复时幂等应用轨道偏好。
+  void setTrackMute(int trackIndex, {required bool isMuted}) {
+    if (_isDisposed) return;
+    final track = _trackByIndex(trackIndex);
+    if (track == null) return;
+    if (track.isMuted == isMuted) return;
+    track.isMuted = isMuted;
     if (track.isMuted) {
       _stopActiveNotesForTrack(trackIndex);
     }
     _notifyListenersIfActive();
   }
+
+  void setLoopStart(double seconds) {
+    if (_isDisposed) return;
+    _loopStartTime = seconds.clamp(0.0, totalDuration);
+    _normalizeLoopRange();
+    _notifyListenersIfActive();
+  }
+
+  void setLoopEnd(double seconds) {
+    if (_isDisposed) return;
+    _loopEndTime = seconds.clamp(0.0, totalDuration);
+    _normalizeLoopRange();
+    _notifyListenersIfActive();
+  }
+
+  void setLoopRange({required double start, required double end}) {
+    if (_isDisposed) return;
+    _loopStartTime = start.clamp(0.0, totalDuration);
+    _loopEndTime = end.clamp(0.0, totalDuration);
+    _normalizeLoopRange();
+    _notifyListenersIfActive();
+  }
+
+  void setLoopEnabled({required bool enabled}) {
+    if (_isDisposed) return;
+    _isLoopEnabled = enabled && hasValidLoopRange;
+    _notifyListenersIfActive();
+  }
+
+  void clearLoop() => _clearLoop();
 
   /// 定时器回调：推进时间并触发事件
   void _onTick() {
@@ -275,6 +361,19 @@ class MidiPlayerController extends ChangeNotifier {
 
     _currentTime += elapsed * _playbackSpeed;
 
+    if (_shouldWrapLoop()) {
+      final loopStart = _loopStartTime!;
+      _jumpTo(loopStart, notify: false, context: 'Loop wrap allNotesOff');
+      onLoopWrapped?.call(loopStart);
+      try {
+        _processEvents();
+      } catch (error, stackTrace) {
+        _reportError(error, '循环回到 A 点后调度事件异常', stackTrace);
+      }
+      _notifyPlaybackUiIfNeeded(now);
+      return;
+    }
+
     // 播放结束
     if (_currentTime >= totalDuration) {
       stop();
@@ -284,8 +383,8 @@ class MidiPlayerController extends ChangeNotifier {
     // 触发当前时间之前的所有事件
     try {
       _processEvents();
-    } catch (error) {
-      _reportError(error, '调度事件时发生异常');
+    } catch (error, stackTrace) {
+      _reportError(error, '调度事件时发生异常', stackTrace);
       // 即使单个事件出错，播放继续推进
     }
     _notifyPlaybackUiIfNeeded(now);
@@ -362,21 +461,33 @@ class MidiPlayerController extends ChangeNotifier {
   }) {
     try {
       unawaited(
-        operation().catchError((Object error) {
+        operation().catchError((Object error, StackTrace stackTrace) {
           onAsyncError?.call();
-          _reportError(error, context);
+          _reportError(error, context, stackTrace);
         }),
       );
       return true;
-    } catch (error) {
-      _reportError(error, context);
+    } catch (error, stackTrace) {
+      _reportError(error, context, stackTrace);
       return false;
     }
   }
 
   /// 报告异常到外部回调
-  void _reportError(Object error, String context) {
+  void _reportError(Object error, String context, [StackTrace? stackTrace]) {
+    final appError = AppError.playbackOperationFailed(
+      context: context,
+      cause: error,
+      stackTrace: stackTrace,
+    );
+    _recordDiagnosticError(appError);
     onPlaybackError?.call(error, context);
+  }
+
+  void _recordDiagnosticError(AppError error) {
+    _lastDiagnosticError = error;
+    onDiagnosticError?.call(error);
+    unawaited(DiagnosticLogger.instance.recordError(error));
   }
 
   /// 检查轨道是否被静音（按 trackIndex 而非 channel）
@@ -414,6 +525,43 @@ class MidiPlayerController extends ChangeNotifier {
       }
     }
     _currentEventIndex = low;
+  }
+
+  void _jumpTo(double seconds, {required String context, bool notify = true}) {
+    _currentTime = seconds.clamp(0.0, totalDuration);
+    _safeAllNotesOff(context);
+    _clearActiveNotes();
+    _updateEventIndex();
+    _applyProgramStateAtCurrentPosition();
+    if (notify) {
+      _notifyListenersIfActive();
+    }
+  }
+
+  bool _shouldWrapLoop() {
+    if (!_isLoopEnabled || !hasValidLoopRange) return false;
+    final loopEnd = _loopEndTime;
+    if (loopEnd == null) return false;
+    return _currentTime >= loopEnd;
+  }
+
+  void _normalizeLoopRange() {
+    if (!hasValidLoopRange) {
+      _isLoopEnabled = false;
+    }
+  }
+
+  void _clearLoop({bool notify = true}) {
+    _loopStartTime = null;
+    _loopEndTime = null;
+    _isLoopEnabled = false;
+    if (notify) {
+      _notifyListenersIfActive();
+    }
+  }
+
+  void _safeAllNotesOff(String context) {
+    _fireAndForget(() => _engine.allNotesOff(), context);
   }
 
   /// 初始化各轨道乐器
@@ -521,8 +669,8 @@ class MidiPlayerController extends ChangeNotifier {
     _currentTime = 0.0;
     _currentEventIndex = 0;
     _clearActiveNotes();
-    unawaited(_engine.allNotesOff());
-    unawaited(_engine.dispose());
+    _safeAllNotesOff('Dispose allNotesOff');
+    _fireAndForget(() => _engine.dispose(), 'Dispose engine');
     super.dispose();
   }
 

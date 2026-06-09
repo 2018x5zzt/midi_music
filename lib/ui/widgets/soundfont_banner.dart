@@ -15,12 +15,12 @@ class SoundfontBanner extends StatelessWidget {
         .clamp(0, 100)
         .round();
     final message = switch (player.soundfontState) {
-      SoundfontSetupState.downloading => '正在自动下载演出音色 $progressPercent%',
+      SoundfontSetupState.downloading => '正在下载音色 $progressPercent%',
       SoundfontSetupState.failed =>
-        player.soundfontErrorMessage ?? '演出音色下载失败，请稍后重试。',
-      SoundfontSetupState.checking => '正在检查本地演出音色。',
-      SoundfontSetupState.idle => '正在准备演出音色。',
-      SoundfontSetupState.ready => '演出音色已就绪。',
+        player.soundfontErrorMessage ?? '音色下载失败，请稍后重试。',
+      SoundfontSetupState.checking => '正在检查本地音色。',
+      SoundfontSetupState.idle => '正在准备音色。',
+      SoundfontSetupState.ready => '音色已就绪。',
     };
     final accent = switch (player.soundfontState) {
       SoundfontSetupState.failed => LuxuryPalette.ruby,

@@ -26,8 +26,7 @@ class TrackTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = track.name.isNotEmpty ? track.name : '轨道 ${track.index + 1}';
     final channels = track.channels.toList()..sort();
-    final channelText =
-        channels.isEmpty ? '无通道' : 'CH ${channels.join(', ')}';
+    final channelText = channels.isEmpty ? '无通道' : 'CH ${channels.join(', ')}';
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
@@ -197,10 +196,10 @@ class TrackSalon extends StatelessWidget {
               ),
             ],
           ),
-          Text('轨道总谱', style: luxuryDisplayStyle(context, size: 28)),
+          Text('轨道', style: luxuryDisplayStyle(context, size: 28)),
           const SizedBox(height: 8),
           const Text(
-            '在这里处理主旋律、静音和混音平衡。',
+            '设置主旋律、静音和音量。',
             style: TextStyle(
               fontSize: 14,
               height: 1.45,
@@ -210,7 +209,7 @@ class TrackSalon extends StatelessWidget {
           const SizedBox(height: 16),
           if (tracks.isEmpty)
             const Text(
-              '当前曲目没有可控制的音符轨道。',
+              '当前曲目没有音符轨道。',
               style: TextStyle(color: LuxuryPalette.textMuted),
             )
           else

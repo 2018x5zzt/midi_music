@@ -159,7 +159,8 @@ class OnsetDetector {
     reset();
     _pitchSubscription = pitchStream.listen(
       _processPitchData,
-      onError: (Object e) => _onsetController.addError(e),
+      onError: (Object e, StackTrace stackTrace) =>
+          _onsetController.addError(e, stackTrace),
     );
   }
 

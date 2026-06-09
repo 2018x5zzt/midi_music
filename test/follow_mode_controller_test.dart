@@ -308,6 +308,35 @@ void main() {
     onsetDetector.dispose();
     controller.dispose();
   });
+
+  test('pitch stream 运行时错误会停止跟随并上报', () async {
+    final pitchInput = StreamController<PitchData>.broadcast();
+    final onsetDetector = OnsetDetector();
+    final controller = FollowModeController(onsetDetector: onsetDetector);
+    final errors = <Object>[];
+    final stackTraces = <StackTrace?>[];
+    controller.onRuntimeError = (error, stackTrace) {
+      errors.add(error);
+      stackTraces.add(stackTrace);
+    };
+    onsetDetector.attachPitchStream(pitchInput.stream);
+    controller.loadScore([_note(60, start: 0, end: 0.2)]);
+    controller.start();
+
+    final error = StateError('audio route changed');
+    final stackTrace = StackTrace.current;
+    pitchInput.addError(error, stackTrace);
+    await pumpEventQueue();
+
+    expect(errors, contains(error));
+    expect(stackTraces, contains(stackTrace));
+    expect(controller.state, FollowModeState.idle);
+    expect(controller.isActive, isFalse);
+
+    await pitchInput.close();
+    onsetDetector.dispose();
+    controller.dispose();
+  });
 }
 
 MidiNote _note(int noteNumber, {required double start, required double end}) {

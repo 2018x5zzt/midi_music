@@ -81,11 +81,9 @@ class PerformanceConsole extends StatelessWidget {
       player.isPlaying,
     );
     final followNote = switch (followState) {
-      FollowModeState.following => '伴奏正在贴合你的演奏速度。',
-      FollowModeState.waitingForOnset => '已进入跟随模式，等待新的起拍。',
-      FollowModeState.idle => isFollowMode
-          ? '跟随已开启，等待演奏输入。'
-          : '当前为手动排练模式。',
+      FollowModeState.following => '伴奏正在跟随你的速度。',
+      FollowModeState.waitingForOnset => '等待下一次起拍。',
+      FollowModeState.idle => isFollowMode ? '跟随已开启，等待输入。' : '手动排练模式。',
     };
 
     return LuxuryPanel(
@@ -108,7 +106,7 @@ class PerformanceConsole extends StatelessWidget {
               ),
             ],
           ),
-          Text('跟随与排练', style: luxuryDisplayStyle(context, size: 28)),
+          Text('跟随排练', style: luxuryDisplayStyle(context, size: 28)),
           const SizedBox(height: 8),
           Text(
             followNote,
@@ -171,11 +169,7 @@ class PerformanceConsole extends StatelessWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            followLabel(
-                              true,
-                              followState,
-                              player.isPlaying,
-                            ),
+                            followLabel(true, followState, player.isPlaying),
                             style: const TextStyle(
                               fontSize: 14,
                               color: LuxuryPalette.textPrimary,
