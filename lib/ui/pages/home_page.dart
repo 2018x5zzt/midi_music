@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
@@ -11,6 +12,145 @@ import '../theme/luxury_theme.dart';
 import 'player_page.dart';
 import 'settings_page.dart';
 
+const _allCategory = '精选';
+
+const _scoreCategories = [_allCategory, '古典', '练习曲', '爵士', '电影', '流行', '四手联弹'];
+
+const _scoreCards = [
+  _ScoreCardData(
+    title: '月光奏鸣曲 第一乐章',
+    composer: 'Beethoven',
+    category: '古典',
+    level: '中级',
+    duration: '5:20',
+    saves: '2.4k',
+    coverHeight: 228,
+    accent: Color(0xFFB98B5B),
+    seed: 2,
+  ),
+  _ScoreCardData(
+    title: '雨后练习曲',
+    composer: 'Chopin Study',
+    category: '练习曲',
+    level: '进阶',
+    duration: '3:48',
+    saves: '986',
+    coverHeight: 286,
+    accent: Color(0xFF7E9B84),
+    seed: 5,
+  ),
+  _ScoreCardData(
+    title: '深夜爵士小品',
+    composer: 'Blue Room',
+    category: '爵士',
+    level: '中级',
+    duration: '2:56',
+    saves: '1.1k',
+    coverHeight: 196,
+    accent: Color(0xFF9C6F8A),
+    seed: 8,
+  ),
+  _ScoreCardData(
+    title: '银幕主题变奏',
+    composer: 'Cinema Theme',
+    category: '电影',
+    level: '初级',
+    duration: '4:12',
+    saves: '764',
+    coverHeight: 258,
+    accent: Color(0xFFB66A4C),
+    seed: 3,
+  ),
+  _ScoreCardData(
+    title: '午后圆舞曲',
+    composer: 'Salon Waltz',
+    category: '古典',
+    level: '初级',
+    duration: '2:34',
+    saves: '538',
+    coverHeight: 214,
+    accent: Color(0xFFC3AA72),
+    seed: 9,
+  ),
+  _ScoreCardData(
+    title: '流行和弦速写',
+    composer: 'Pop Sketch',
+    category: '流行',
+    level: '入门',
+    duration: '3:10',
+    saves: '1.8k',
+    coverHeight: 300,
+    accent: Color(0xFF6893A1),
+    seed: 4,
+  ),
+  _ScoreCardData(
+    title: '双钢琴排练片段',
+    composer: 'Duo Session',
+    category: '四手联弹',
+    level: '进阶',
+    duration: '6:18',
+    saves: '431',
+    coverHeight: 244,
+    accent: Color(0xFFA88C5E),
+    seed: 11,
+  ),
+  _ScoreCardData(
+    title: '晨间音阶练习',
+    composer: 'Daily Routine',
+    category: '练习曲',
+    level: '入门',
+    duration: '1:44',
+    saves: '692',
+    coverHeight: 184,
+    accent: Color(0xFF8F855D),
+    seed: 1,
+  ),
+  _ScoreCardData(
+    title: '黑键即兴',
+    composer: 'Noir Keys',
+    category: '爵士',
+    level: '进阶',
+    duration: '4:45',
+    saves: '807',
+    coverHeight: 272,
+    accent: Color(0xFF6E8175),
+    seed: 7,
+  ),
+  _ScoreCardData(
+    title: '片尾曲钢琴版',
+    composer: 'Ending Credits',
+    category: '电影',
+    level: '中级',
+    duration: '3:38',
+    saves: '1.5k',
+    coverHeight: 220,
+    accent: Color(0xFFAA7F69),
+    seed: 6,
+  ),
+  _ScoreCardData(
+    title: '周末旋律',
+    composer: 'Weekend Lead',
+    category: '流行',
+    level: '初级',
+    duration: '2:48',
+    saves: '923',
+    coverHeight: 252,
+    accent: Color(0xFF9BA35E),
+    seed: 10,
+  ),
+  _ScoreCardData(
+    title: '四手联弹序曲',
+    composer: 'Opening Duo',
+    category: '四手联弹',
+    level: '中级',
+    duration: '5:04',
+    saves: '376',
+    coverHeight: 312,
+    accent: Color(0xFFB78D72),
+    seed: 12,
+  ),
+];
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -20,7 +160,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final MidiFileParser _parser = MidiFileParser();
-  bool _isLoading = false;
+  var _isLoading = false;
+  var _selectedCategory = _allCategory;
 
   Future<void> _pickAndLoadMidi() async {
     final result = await FilePicker.platform.pickFiles(
@@ -76,6 +217,30 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _showScorePreview(_ScoreCardData score) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(score.title),
+        content: const Text('曲库内容稍后接入，当前可先导入 MIDI 开始播放。'),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(dialogContext),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              unawaited(_pickAndLoadMidi());
+            },
+            child: const Text('导入 MIDI'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openPlayer() {
     unawaited(
       Navigator.of(
@@ -95,10 +260,16 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final player = context.watch<MidiPlayerController>();
+    final visibleScores = _selectedCategory == _allCategory
+        ? _scoreCards
+        : _scoreCards
+              .where((score) => score.category == _selectedCategory)
+              .toList(growable: false);
+
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         border: null,
-        middle: const Text('MIDI 伴奏'),
+        middle: const Text('乐谱广场'),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
           minimumSize: const Size(0, 0),
@@ -120,94 +291,37 @@ class _HomePageState extends State<HomePage> {
                     key: ValueKey('loading'),
                     child: CupertinoActivityIndicator(radius: 18),
                   )
-                : SingleChildScrollView(
-                    key: const ValueKey('home'),
+                : CustomScrollView(
+                    key: const ValueKey('score-feed'),
                     physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _HeaderBlock(),
-                        const SizedBox(height: 14),
-                        LuxuryPanel(
-                          highlighted: true,
-                          padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const _TinyStatus(label: 'Nocturne Edition'),
-                                  const Spacer(),
-                                  _SoundfontPill(player: player),
-                                ],
-                              ),
-                              const SizedBox(height: 28),
-                              const _HeroAccent(),
-                              const SizedBox(height: 22),
-                              Text(
-                                '黑金伴奏厅',
-                                style: luxuryDisplayStyle(context, size: 38),
-                              ),
-                              const SizedBox(height: 12),
-                              const Text(
-                                '为古典排练准备的 MIDI 伴奏与实时跟随。',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: LuxuryPalette.textMuted,
-                                ),
-                              ),
-                              if (!player.isSoundfontReady) ...[
-                                const SizedBox(height: 14),
-                                _SoundfontStatusLine(player: player),
-                              ],
-                              if (player.songData != null) ...[
-                                const SizedBox(height: 14),
-                                _LoadedScoreLine(
-                                  fileName: player.songData!.fileName,
-                                ),
-                              ],
-                              const SizedBox(height: 22),
-                              _PrimaryActionButton(
-                                label: '导入 MIDI 乐谱',
-                                icon: CupertinoIcons.arrow_down_doc_fill,
-                                onPressed: _pickAndLoadMidi,
-                              ),
-                              if (player.songData != null) ...[
-                                const SizedBox(height: 12),
-                                _SecondaryActionButton(
-                                  label: '继续当前曲目',
-                                  icon: CupertinoIcons.play_arrow_solid,
-                                  onPressed: _openPlayer,
-                                ),
-                              ],
-                              const SizedBox(height: 22),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _CompactMetric(
-                                      label: '当前曲目',
-                                      value: player.songData == null
-                                          ? '未载入'
-                                          : '已就绪',
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  const Expanded(
-                                    child: _CompactMetric(
-                                      label: '控制能力',
-                                      value: '轨道 / 跟随',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: _ScoreFeedHeader(
+                          player: player,
+                          onImport: _pickAndLoadMidi,
+                          onContinue: player.songData == null
+                              ? null
+                              : _openPlayer,
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: _CategoryStrip(
+                          selectedCategory: _selectedCategory,
+                          onSelected: (category) {
+                            setState(() => _selectedCategory = category);
+                          },
+                        ),
+                      ),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 34),
+                        sliver: SliverToBoxAdapter(
+                          child: _ScoreMasonryGrid(
+                            scores: visibleScores,
+                            onScorePressed: _showScorePreview,
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        const _BottomFeatureStrip(),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
           ),
         ),
@@ -216,67 +330,600 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _HeaderBlock extends StatelessWidget {
-  const _HeaderBlock();
+class _ScoreFeedHeader extends StatelessWidget {
+  final MidiPlayerController player;
+  final VoidCallback onImport;
+  final VoidCallback? onContinue;
+
+  const _ScoreFeedHeader({
+    required this.player,
+    required this.onImport,
+    required this.onContinue,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              'NOCTURNE EDITION',
-              style: TextStyle(
-                fontSize: 12,
-                letterSpacing: 2.2,
-                color: LuxuryPalette.textSubtle,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('乐谱广场', style: luxuryDisplayStyle(context, size: 36)),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '浏览谱面灵感，导入 MIDI 后进入排练。',
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.45,
+                        color: LuxuryPalette.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Spacer(),
-            Icon(
-              CupertinoIcons.music_note,
-              size: 15,
-              color: LuxuryPalette.goldDim,
-            ),
+              const SizedBox(width: 14),
+              _SoundfontBadge(player: player),
+            ],
+          ),
+          const SizedBox(height: 18),
+          const _SearchField(),
+          const SizedBox(height: 14),
+          _HeaderActions(
+            onImport: onImport,
+            onContinue: onContinue,
+            currentFileName: player.songData?.fileName,
+          ),
+          if (!player.isSoundfontReady) ...[
+            const SizedBox(height: 12),
+            _SoundfontStatusLine(player: player),
           ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _TinyStatus extends StatelessWidget {
-  final String label;
-
-  const _TinyStatus({required this.label});
+class _SearchField extends StatelessWidget {
+  const _SearchField();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
-        color: LuxuryPalette.gold.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
+        color: CupertinoColors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: LuxuryPalette.divider),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 12,
-          letterSpacing: 1.0,
-          color: LuxuryPalette.goldBright,
+      child: const Row(
+        children: [
+          Icon(
+            CupertinoIcons.search,
+            size: 18,
+            color: LuxuryPalette.textSubtle,
+          ),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '搜索曲名、作曲家或风格',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14, color: LuxuryPalette.textSubtle),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderActions extends StatelessWidget {
+  final VoidCallback onImport;
+  final VoidCallback? onContinue;
+  final String? currentFileName;
+
+  const _HeaderActions({
+    required this.onImport,
+    required this.onContinue,
+    required this.currentFileName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 380;
+        final continueButton = onContinue == null
+            ? null
+            : _SecondaryActionButton(
+                label: currentFileName ?? '继续当前曲目',
+                icon: CupertinoIcons.play_arrow_solid,
+                onPressed: onContinue!,
+              );
+
+        if (isCompact || continueButton == null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _PrimaryActionButton(
+                label: '导入 MIDI 乐谱',
+                icon: CupertinoIcons.arrow_down_doc_fill,
+                onPressed: onImport,
+              ),
+              if (continueButton != null) ...[
+                const SizedBox(height: 10),
+                continueButton,
+              ],
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(
+              child: _PrimaryActionButton(
+                label: '导入 MIDI 乐谱',
+                icon: CupertinoIcons.arrow_down_doc_fill,
+                onPressed: onImport,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: continueButton),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CategoryStrip extends StatelessWidget {
+  final String selectedCategory;
+  final ValueChanged<String> onSelected;
+
+  const _CategoryStrip({
+    required this.selectedCategory,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        physics: const BouncingScrollPhysics(),
+        scrollDirection: Axis.horizontal,
+        itemCount: _scoreCategories.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final category = _scoreCategories[index];
+          return _CategoryPill(
+            label: category,
+            selected: category == selectedCategory,
+            onPressed: () => onSelected(category),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CategoryPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  const _CategoryPill({
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: Key('score-category-$label'),
+      decoration: BoxDecoration(
+        color: selected
+            ? LuxuryPalette.goldBright
+            : CupertinoColors.white.withValues(alpha: 0.045),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: selected ? LuxuryPalette.goldBright : LuxuryPalette.divider,
+        ),
+      ),
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+        minimumSize: const Size(0, 0),
+        borderRadius: BorderRadius.circular(999),
+        onPressed: onPressed,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? CupertinoColors.black : LuxuryPalette.textPrimary,
+          ),
         ),
       ),
     );
   }
 }
 
-class _SoundfontPill extends StatelessWidget {
+class _ScoreMasonryGrid extends StatelessWidget {
+  final List<_ScoreCardData> scores;
+  final ValueChanged<_ScoreCardData> onScorePressed;
+
+  const _ScoreMasonryGrid({required this.scores, required this.onScorePressed});
+
+  @override
+  Widget build(BuildContext context) {
+    if (scores.isEmpty) {
+      return const _EmptyScores();
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columnCount = width >= 920
+            ? 4
+            : width >= 620
+            ? 3
+            : 2;
+        final gap = width >= 620 ? 14.0 : 10.0;
+        final columns = List.generate(columnCount, (_) => <_ScoreCardData>[]);
+        final columnHeights = List.filled(columnCount, 0.0);
+
+        for (final score in scores) {
+          var targetColumn = 0;
+          for (var i = 1; i < columnHeights.length; i += 1) {
+            if (columnHeights[i] < columnHeights[targetColumn]) {
+              targetColumn = i;
+            }
+          }
+
+          columns[targetColumn].add(score);
+          columnHeights[targetColumn] += score.coverHeight + 150;
+        }
+
+        return Row(
+          key: const Key('score-masonry-grid'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var index = 0; index < columns.length; index += 1) ...[
+              if (index > 0) SizedBox(width: gap),
+              Expanded(
+                child: Column(
+                  children: [
+                    for (final score in columns[index]) ...[
+                      _ScoreCard(
+                        score: score,
+                        onPressed: () => onScorePressed(score),
+                      ),
+                      SizedBox(height: gap),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ScoreCard extends StatelessWidget {
+  final _ScoreCardData score;
+  final VoidCallback onPressed;
+
+  const _ScoreCard({required this.score, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: Key('score-card-${score.seed}'),
+      decoration: BoxDecoration(
+        color: LuxuryPalette.panelRaised.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: LuxuryPalette.divider),
+        boxShadow: [
+          BoxShadow(
+            color: CupertinoColors.black.withValues(alpha: 0.26),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        minimumSize: const Size(0, 0),
+        borderRadius: BorderRadius.circular(18),
+        onPressed: onPressed,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SheetPreview(score: score),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _MiniTag(label: score.category, color: score.accent),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          score.level,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: LuxuryPalette.textSubtle,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                  Text(
+                    score.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 1.18,
+                      fontWeight: FontWeight.w600,
+                      color: LuxuryPalette.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    score.composer,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: LuxuryPalette.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.clock,
+                        size: 13,
+                        color: LuxuryPalette.textSubtle,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        score.duration,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: LuxuryPalette.textSubtle,
+                        ),
+                      ),
+                      const Spacer(),
+                      const Icon(
+                        CupertinoIcons.bookmark,
+                        size: 13,
+                        color: LuxuryPalette.goldBright,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        score.saves,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: LuxuryPalette.goldBright,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetPreview extends StatelessWidget {
+  final _ScoreCardData score;
+
+  const _SheetPreview({required this.score});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(17)),
+      child: Container(
+        height: score.coverHeight,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFF3E7D1), Color(0xFFD9C59B)],
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _SheetPreviewPainter(
+                  accent: score.accent,
+                  seed: score.seed,
+                ),
+              ),
+            ),
+            Positioned(
+              left: 10,
+              top: 10,
+              child: Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: CupertinoColors.black.withValues(alpha: 0.76),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: CupertinoColors.white.withValues(alpha: 0.12),
+                  ),
+                ),
+                child: const Icon(
+                  CupertinoIcons.music_note_2,
+                  size: 18,
+                  color: LuxuryPalette.goldBright,
+                ),
+              ),
+            ),
+            Positioned(
+              right: 10,
+              bottom: 10,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: CupertinoColors.black.withValues(alpha: 0.62),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  child: Text(
+                    score.category,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: LuxuryPalette.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetPreviewPainter extends CustomPainter {
+  final Color accent;
+  final int seed;
+
+  const _SheetPreviewPainter({required this.accent, required this.seed});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final margin = math.max(16.0, size.width * 0.12);
+    final staffPaint = Paint()
+      ..color = const Color(0xFF4C3820).withValues(alpha: 0.58)
+      ..strokeWidth = 1;
+    final notePaint = Paint()..color = const Color(0xFF2D2117);
+    final accentPaint = Paint()..color = accent.withValues(alpha: 0.16);
+    final systemCount = math.max(2, (size.height / 76).floor());
+    final systemGap = (size.height - 44) / systemCount;
+
+    canvas.drawRect(
+      Rect.fromLTWH(size.width - 6, 0, 6, size.height),
+      accentPaint,
+    );
+
+    for (var system = 0; system < systemCount; system += 1) {
+      final top = 24.0 + system * systemGap;
+      final staffWidth = size.width - margin * 2;
+
+      for (var line = 0; line < 5; line += 1) {
+        final y = top + line * 6;
+        canvas.drawLine(
+          Offset(margin, y),
+          Offset(size.width - margin, y),
+          staffPaint,
+        );
+      }
+
+      for (var bar = 1; bar < 4; bar += 1) {
+        final x = margin + staffWidth * bar / 4;
+        canvas.drawLine(Offset(x, top), Offset(x, top + 24), staffPaint);
+      }
+
+      for (var note = 0; note < 6; note += 1) {
+        final x = margin + 12 + (note * staffWidth / 6);
+        final line = (note + seed + system) % 5;
+        final y = top + line * 6 + (note.isEven ? 0 : 3);
+        canvas.drawOval(
+          Rect.fromCenter(center: Offset(x, y), width: 7, height: 5),
+          notePaint,
+        );
+        final stemTop = y - 17;
+        canvas.drawLine(
+          Offset(x + 3.2, y),
+          Offset(x + 3.2, stemTop),
+          notePaint,
+        );
+      }
+    }
+
+    final titlePaint = Paint()
+      ..color = accent.withValues(alpha: 0.18)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(margin, 12, size.width - margin * 2, 18),
+        const Radius.circular(5),
+      ),
+      titlePaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SheetPreviewPainter oldDelegate) {
+    return oldDelegate.accent != accent || oldDelegate.seed != seed;
+  }
+}
+
+class _MiniTag extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _MiniTag({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: LuxuryPalette.textPrimary,
+        ),
+      ),
+    );
+  }
+}
+
+class _SoundfontBadge extends StatelessWidget {
   final MidiPlayerController player;
 
-  const _SoundfontPill({required this.player});
+  const _SoundfontBadge({required this.player});
 
   @override
   Widget build(BuildContext context) {
@@ -287,23 +934,39 @@ class _SoundfontPill extends StatelessWidget {
       _ => LuxuryPalette.gold,
     };
     final text = switch (player.soundfontState) {
-      SoundfontSetupState.ready => '音色已就绪',
-      SoundfontSetupState.failed => '下载失败',
-      SoundfontSetupState.downloading => '下载中',
-      SoundfontSetupState.checking => '检查中',
-      SoundfontSetupState.idle => '准备中',
+      SoundfontSetupState.ready => '音色',
+      SoundfontSetupState.failed => '异常',
+      SoundfontSetupState.downloading => '下载',
+      SoundfontSetupState.checking => '检查',
+      SoundfontSetupState.idle => '准备',
     };
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 8),
-        Text(text, style: TextStyle(fontSize: 12, color: color)),
-      ],
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.34)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -326,67 +989,8 @@ class _SoundfontStatusLine extends StatelessWidget {
       SoundfontSetupState.ready => '音色库已就绪',
     };
 
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            message,
-            style: const TextStyle(
-              fontSize: 13,
-              color: LuxuryPalette.textMuted,
-            ),
-          ),
-        ),
-        if (player.soundfontState == SoundfontSetupState.failed) ...[
-          const SizedBox(width: 12),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(0, 0),
-            onPressed: player.retrySoundfontSetup,
-            child: const Text(
-              '重试',
-              style: TextStyle(fontSize: 13, color: LuxuryPalette.goldBright),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _HeroAccent extends StatelessWidget {
-  const _HeroAccent();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(width: 40, height: 2, color: LuxuryPalette.goldBright),
-        const SizedBox(width: 10),
-        Container(
-          width: 10,
-          height: 10,
-          decoration: const BoxDecoration(
-            color: LuxuryPalette.goldBright,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(child: Container(height: 1, color: LuxuryPalette.divider)),
-      ],
-    );
-  }
-}
-
-class _LoadedScoreLine extends StatelessWidget {
-  final String fileName;
-
-  const _LoadedScoreLine({required this.fileName});
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: CupertinoColors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(16),
@@ -394,23 +998,27 @@ class _LoadedScoreLine extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
-            CupertinoIcons.music_note_list,
-            size: 16,
-            color: LuxuryPalette.goldBright,
-          ),
-          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              fileName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              message,
               style: const TextStyle(
                 fontSize: 13,
-                color: LuxuryPalette.textPrimary,
+                color: LuxuryPalette.textMuted,
               ),
             ),
           ),
+          if (player.soundfontState == SoundfontSetupState.failed) ...[
+            const SizedBox(width: 12),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 0),
+              onPressed: player.retrySoundfontSetup,
+              child: const Text(
+                '重试',
+                style: TextStyle(fontSize: 13, color: LuxuryPalette.goldBright),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -435,24 +1043,24 @@ class _PrimaryActionButton extends StatelessWidget {
         gradient: const LinearGradient(
           colors: [Color(0xFFE8CF99), Color(0xFFC49A57)],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: LuxuryPalette.gold.withValues(alpha: 0.22),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
+            color: LuxuryPalette.gold.withValues(alpha: 0.2),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-        borderRadius: BorderRadius.circular(20),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
+        borderRadius: BorderRadius.circular(18),
         onPressed: onPressed,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 18, color: CupertinoColors.black),
-            const SizedBox(width: 10),
+            Icon(icon, size: 17, color: CupertinoColors.black),
+            const SizedBox(width: 8),
             Flexible(
               child: Text(
                 label,
@@ -460,8 +1068,8 @@ class _PrimaryActionButton extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: CupertinoColors.black,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -487,25 +1095,29 @@ class _SecondaryActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: CupertinoColors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(20),
+        color: CupertinoColors.white.withValues(alpha: 0.055),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: LuxuryPalette.divider),
       ),
       child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        borderRadius: BorderRadius.circular(20),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        borderRadius: BorderRadius.circular(18),
         onPressed: onPressed,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 16, color: LuxuryPalette.textPrimary),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                color: LuxuryPalette.textPrimary,
-                fontWeight: FontWeight.w600,
+            Icon(icon, size: 15, color: LuxuryPalette.textPrimary),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: LuxuryPalette.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -515,92 +1127,48 @@ class _SecondaryActionButton extends StatelessWidget {
   }
 }
 
-class _CompactMetric extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _CompactMetric({required this.label, required this.value});
+class _EmptyScores extends StatelessWidget {
+  const _EmptyScores();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
       decoration: BoxDecoration(
-        color: CupertinoColors.white.withValues(alpha: 0.03),
+        color: CupertinoColors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: LuxuryPalette.divider),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: LuxuryPalette.textSubtle,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: LuxuryPalette.goldBright,
-            ),
-          ),
-        ],
+      child: const Center(
+        child: Text(
+          '暂无乐谱',
+          style: TextStyle(fontSize: 14, color: LuxuryPalette.textMuted),
+        ),
       ),
     );
   }
 }
 
-class _BottomFeatureStrip extends StatelessWidget {
-  const _BottomFeatureStrip();
-
-  @override
-  Widget build(BuildContext context) {
-    return const LuxuryPanel(
-      padding: EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          _ValueItem(title: '导入', subtitle: 'MIDI'),
-          _ValueItem(title: '控制', subtitle: '轨道'),
-          _ValueItem(title: '跟随', subtitle: '实时'),
-        ],
-      ),
-    );
-  }
-}
-
-class _ValueItem extends StatelessWidget {
+class _ScoreCardData {
   final String title;
-  final String subtitle;
+  final String composer;
+  final String category;
+  final String level;
+  final String duration;
+  final String saves;
+  final double coverHeight;
+  final Color accent;
+  final int seed;
 
-  const _ValueItem({required this.title, required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: LuxuryPalette.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: const TextStyle(fontSize: 12, color: LuxuryPalette.textMuted),
-        ),
-      ],
-    );
-  }
+  const _ScoreCardData({
+    required this.title,
+    required this.composer,
+    required this.category,
+    required this.level,
+    required this.duration,
+    required this.saves,
+    required this.coverHeight,
+    required this.accent,
+    required this.seed,
+  });
 }

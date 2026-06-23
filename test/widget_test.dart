@@ -24,6 +24,36 @@ void main() {
     );
 
     expect(find.text('导入 MIDI 乐谱'), findsOneWidget);
+    expect(find.text('乐谱广场'), findsWidgets);
+    expect(find.byKey(const Key('score-masonry-grid')), findsOneWidget);
+  });
+
+  testWidgets('Home page shows score waterfall and filters categories', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) =>
+                AppSettingsController(storage: _MemorySettingsStorage()),
+          ),
+          ChangeNotifierProvider(create: (_) => MidiPlayerController()),
+        ],
+        child: const MidiMusicApp(),
+      ),
+    );
+
+    expect(find.byKey(const Key('score-card-2')), findsOneWidget);
+    expect(find.text('月光奏鸣曲 第一乐章'), findsOneWidget);
+    expect(find.text('深夜爵士小品'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('score-category-爵士')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('深夜爵士小品'), findsOneWidget);
+    expect(find.text('黑键即兴'), findsOneWidget);
+    expect(find.text('月光奏鸣曲 第一乐章'), findsNothing);
   });
 
   testWidgets('Settings page can be opened from home', (
