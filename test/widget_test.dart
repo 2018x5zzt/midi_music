@@ -56,6 +56,31 @@ void main() {
     expect(find.text('月光奏鸣曲 第一乐章'), findsNothing);
   });
 
+  testWidgets('Score card opens practice reader page', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) =>
+                AppSettingsController(storage: _MemorySettingsStorage()),
+          ),
+          ChangeNotifierProvider(create: (_) => MidiPlayerController()),
+        ],
+        child: const MidiMusicApp(),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('score-card-2')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('月光奏鸣曲 第一乐章'), findsWidgets);
+    expect(find.text('载入'), findsOneWidget);
+    expect(find.text('谱面'), findsOneWidget);
+    expect(find.text('跟随'), findsOneWidget);
+  });
+
   testWidgets('Settings page can be opened from home', (
     WidgetTester tester,
   ) async {

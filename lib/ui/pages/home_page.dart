@@ -10,6 +10,7 @@ import '../../core/midi/midi_player.dart';
 import '../../core/settings/app_settings.dart';
 import '../theme/luxury_theme.dart';
 import 'player_page.dart';
+import 'score_practice_page.dart';
 import 'settings_page.dart';
 
 const _allCategory = '精选';
@@ -27,6 +28,7 @@ const _scoreCards = [
     coverHeight: 228,
     accent: Color(0xFFB98B5B),
     seed: 2,
+    assetPath: 'assets/midi/Beethoven-Moonlight-Sonata.mid',
   ),
   _ScoreCardData(
     title: '雨后练习曲',
@@ -38,6 +40,7 @@ const _scoreCards = [
     coverHeight: 286,
     accent: Color(0xFF7E9B84),
     seed: 5,
+    assetPath: 'assets/midi/chopin_nocturne.mid',
   ),
   _ScoreCardData(
     title: '深夜爵士小品',
@@ -71,6 +74,7 @@ const _scoreCards = [
     coverHeight: 214,
     accent: Color(0xFFC3AA72),
     seed: 9,
+    assetPath: 'assets/midi/mozart_k545.mid',
   ),
   _ScoreCardData(
     title: '流行和弦速写',
@@ -104,6 +108,7 @@ const _scoreCards = [
     coverHeight: 184,
     accent: Color(0xFF8F855D),
     seed: 1,
+    assetPath: 'assets/midi/bach_wtc1_prelude.mid',
   ),
   _ScoreCardData(
     title: '黑键即兴',
@@ -217,26 +222,12 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _showScorePreview(_ScoreCardData score) {
-    showCupertinoDialog<void>(
-      context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
-        title: Text(score.title),
-        content: const Text('曲库内容稍后接入，当前可先导入 MIDI 开始播放。'),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.pop(dialogContext),
-          ),
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () {
-              Navigator.pop(dialogContext);
-              unawaited(_pickAndLoadMidi());
-            },
-            child: const Text('导入 MIDI'),
-          ),
-        ],
+  void _openScorePractice(_ScoreCardData score) {
+    unawaited(
+      Navigator.of(context).push(
+        CupertinoPageRoute<void>(
+          builder: (_) => ScorePracticePage(score: score.toPracticeMetadata()),
+        ),
       ),
     );
   }
@@ -317,7 +308,7 @@ class _HomePageState extends State<HomePage> {
                         sliver: SliverToBoxAdapter(
                           child: _ScoreMasonryGrid(
                             scores: visibleScores,
-                            onScorePressed: _showScorePreview,
+                            onScorePressed: _openScorePractice,
                           ),
                         ),
                       ),
@@ -1159,6 +1150,7 @@ class _ScoreCardData {
   final double coverHeight;
   final Color accent;
   final int seed;
+  final String? assetPath;
 
   const _ScoreCardData({
     required this.title,
@@ -1170,5 +1162,20 @@ class _ScoreCardData {
     required this.coverHeight,
     required this.accent,
     required this.seed,
+    this.assetPath,
   });
+
+  PracticeScoreMetadata toPracticeMetadata() {
+    return PracticeScoreMetadata(
+      title: title,
+      composer: composer,
+      category: category,
+      level: level,
+      duration: duration,
+      saves: saves,
+      accent: accent,
+      seed: seed,
+      assetPath: assetPath,
+    );
+  }
 }
