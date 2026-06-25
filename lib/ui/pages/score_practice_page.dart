@@ -54,14 +54,21 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   var _annotationsVisible = true;
   var _aiTempoEnabled = false;
 
-  Future<void> _loadAssetScore() async {
+  /// 当前曲目是否已加载到全局播放器（按 songId 区分，避免误判其他曲目）。
+  bool _isScoreLoaded(MidiPlayerController player) {
+    return player.songData != null &&
+        player.currentSongId == widget.score.title;
+  }
+
+  Future<bool> _loadAssetScore() async {
     final assetPath = widget.score.assetPath;
     if (assetPath == null) {
       _showAlert('曲库资源未接入', '这首曲目暂时只有谱面预览，请先导入 MIDI 文件排练。');
-      return;
+      return false;
     }
 
     setState(() => _isLoadingScore = true);
+    var loaded = false;
     try {
       final data = await rootBundle.load(assetPath);
       final bytes = data.buffer.asUint8List();
@@ -69,27 +76,35 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         bytes,
         fileName: assetPath.split('/').last,
       );
-      if (!mounted) return;
+      if (!mounted) return false;
 
       final player = context.read<MidiPlayerController>();
       final settings = context.read<AppSettingsController>();
       player.loadSong(song, songId: widget.score.title);
       player.setSpeed(settings.defaultPlaybackSpeed);
       setState(() => _tempoFactor = player.playbackSpeed);
+      loaded = true;
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       _showAlert('载入失败', '无法载入内置 MIDI：$error');
     } finally {
       if (mounted) {
         setState(() => _isLoadingScore = false);
       }
     }
+    return loaded;
   }
 
-  void _togglePlayback(MidiPlayerController player) {
-    if (player.songData == null) {
-      setState(() => _isPreviewPlaying = !_isPreviewPlaying);
-      return;
+  Future<void> _togglePlayback(MidiPlayerController player) async {
+    // 若当前曲目尚未加载（或加载的是别的曲子），先把这首加载进来再播放，
+    // 否则会出现「显示已载入却没声音 / 播放成上一首」的问题。
+    if (!_isScoreLoaded(player)) {
+      if (widget.score.assetPath == null) {
+        setState(() => _isPreviewPlaying = !_isPreviewPlaying);
+        return;
+      }
+      final loaded = await _loadAssetScore();
+      if (!loaded || !mounted) return;
     }
     if (player.isPlaying) {
       player.pause();
@@ -164,7 +179,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       ),
       child: Consumer<MidiPlayerController>(
         builder: (context, player, _) {
-          final hasLoadedSong = player.songData != null;
+          final hasLoadedSong = _isScoreLoaded(player);
           final progress = hasLoadedSong && player.totalDuration > 0
               ? (player.currentTime / player.totalDuration).clamp(0.0, 1.0)
               : (_isPreviewPlaying ? 0.18 : 0.0);
@@ -195,6 +210,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
                     SliverToBoxAdapter(
                       child: _PracticeTimeline(
                         player: player,
+                        isScoreLoaded: hasLoadedSong,
                         progress: progress,
                         onSeek: (value) => _seek(player, value),
                       ),
@@ -406,18 +422,20 @@ class _ScorePaper extends StatelessWidget {
 
 class _PracticeTimeline extends StatelessWidget {
   final MidiPlayerController player;
+  final bool isScoreLoaded;
   final double progress;
   final ValueChanged<double> onSeek;
 
   const _PracticeTimeline({
     required this.player,
+    required this.isScoreLoaded,
     required this.progress,
     required this.onSeek,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasSong = player.songData != null && player.totalDuration > 0;
+    final hasSong = isScoreLoaded && player.totalDuration > 0;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
@@ -806,6 +824,8 @@ class _PracticeScorePainter extends CustomPainter {
     final systemGap = size.height * 0.205;
     final staffGap = size.height * 0.055;
     final lineGap = size.height * 0.0092;
+    final clefWidth = size.width * 0.06;
+    final keySigWidth = size.width * 0.085;
     const systemCount = 4;
     final cursorSystem = (progress * systemCount).floor().clamp(
       0,
@@ -818,12 +838,15 @@ class _PracticeScorePainter extends CustomPainter {
       final trebleTop = top;
       final bassTop = top + staffGap;
       final startX = left + size.width * 0.045;
+      // 谱号 + 调号占据起始一段，音符/小节线从这里之后才开始，避免互相重叠。
+      final contentLeft = startX + clefWidth + keySigWidth;
+      final span = right - contentLeft;
 
       _drawBrace(canvas, left, trebleTop, bassTop + lineGap * 4, thin);
-      _drawClef(canvas, startX - size.width * 0.028, trebleTop, '𝄞');
-      _drawClef(canvas, startX - size.width * 0.028, bassTop, '𝄢');
-      _drawKeySignature(canvas, startX, trebleTop, ink);
-      _drawKeySignature(canvas, startX, bassTop, ink);
+      _drawTrebleClef(canvas, startX, trebleTop, lineGap, ink);
+      _drawBassClef(canvas, startX, bassTop, lineGap, ink);
+      _drawKeySignature(canvas, startX + clefWidth, trebleTop, ink);
+      _drawKeySignature(canvas, startX + clefWidth, bassTop, ink);
 
       for (var line = 0; line < 5; line += 1) {
         final trebleY = trebleTop + line * lineGap;
@@ -834,7 +857,7 @@ class _PracticeScorePainter extends CustomPainter {
 
       final barCount = system == 0 ? 5 : 4;
       for (var bar = 0; bar <= barCount; bar += 1) {
-        final x = startX + (right - startX) * bar / barCount;
+        final x = contentLeft + span * bar / barCount;
         canvas.drawLine(
           Offset(x, trebleTop),
           Offset(x, bassTop + lineGap * 4),
@@ -843,7 +866,7 @@ class _PracticeScorePainter extends CustomPainter {
       }
 
       if (system == cursorSystem) {
-        final x = startX + (right - startX) * cursorLocal;
+        final x = contentLeft + span * cursorLocal;
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromLTWH(
@@ -859,7 +882,7 @@ class _PracticeScorePainter extends CustomPainter {
       }
 
       if (annotationsVisible && system < 3) {
-        final x = startX + (right - startX) * (0.23 + system * 0.12);
+        final x = contentLeft + span * (0.18 + system * 0.12);
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromLTWH(x, bassTop - lineGap * 1.4, 18, 18),
@@ -869,8 +892,8 @@ class _PracticeScorePainter extends CustomPainter {
         );
       }
 
-      _drawNotes(canvas, startX, right, trebleTop, lineGap, system, true, ink);
-      _drawNotes(canvas, startX, right, bassTop, lineGap, system, false, ink);
+      _drawNotes(canvas, contentLeft, right, trebleTop, lineGap, system, true, ink);
+      _drawNotes(canvas, contentLeft, right, bassTop, lineGap, system, false, ink);
 
       _drawMeasureNumber(canvas, system, left * 0.72, trebleTop);
     }
@@ -918,15 +941,63 @@ class _PracticeScorePainter extends CustomPainter {
     canvas.drawPath(path, paint..style = PaintingStyle.stroke);
   }
 
-  void _drawClef(Canvas canvas, double x, double top, String value) {
-    _drawText(
-      canvas,
-      value,
-      Offset(x, top - 7),
-      fontSize: 34,
-      color: const Color(0xFF15110D),
-      anchor: _TextAnchor.left,
-    );
+  /// 矢量高音谱号（G 谱号）。用绘制代替 Unicode 字形，避免 iOS 缺字显示成 "?"。
+  void _drawTrebleClef(Canvas canvas, double x, double top, double gap, Paint ink) {
+    final stroke = Paint()
+      ..color = ink.color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.1, gap * 0.5)
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final cx = x + gap * 1.4;
+    final path = Path()
+      ..moveTo(cx + gap * 0.8, top - gap * 0.4)
+      ..cubicTo(cx - gap * 1.3, top - gap * 0.2, cx - gap * 1.2,
+          top + gap * 2.4, cx + gap * 0.3, top + gap * 2.7)
+      ..cubicTo(cx + gap * 1.7, top + gap * 3.0, cx + gap * 1.4,
+          top + gap * 0.7, cx - gap * 0.2, top + gap * 1.0)
+      ..cubicTo(cx - gap * 1.0, top + gap * 1.2, cx - gap * 0.3,
+          top + gap * 3.6, cx + gap * 0.4, top + gap * 4.2)
+      ..cubicTo(cx + gap * 1.0, top + gap * 4.7, cx + gap * 0.5,
+          top + gap * 5.4, cx - gap * 0.2, top + gap * 5.1);
+    canvas.drawPath(path, stroke);
+    canvas.drawCircle(Offset(cx + gap * 0.15, top + gap * 1.85), gap * 0.55, ink);
+  }
+
+  /// 矢量低音谱号（F 谱号）：弯钩 + 两个点。
+  void _drawBassClef(Canvas canvas, double x, double top, double gap, Paint ink) {
+    final stroke = Paint()
+      ..color = ink.color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.1, gap * 0.55)
+      ..strokeCap = StrokeCap.round;
+    final sx = x + gap * 0.6;
+    final path = Path()
+      ..moveTo(sx, top + gap * 0.7)
+      ..cubicTo(sx + gap * 2.4, top - gap * 0.2, sx + gap * 2.8,
+          top + gap * 2.4, sx + gap * 0.9, top + gap * 3.1)
+      ..cubicTo(sx + gap * 0.2, top + gap * 3.4, sx - gap * 0.3,
+          top + gap * 3.0, sx - gap * 0.1, top + gap * 2.5);
+    canvas.drawPath(path, stroke);
+    canvas.drawCircle(Offset(sx + gap * 0.4, top + gap * 0.7), gap * 0.5, ink);
+    canvas.drawCircle(Offset(sx + gap * 3.1, top + gap * 0.7), gap * 0.3, ink);
+    canvas.drawCircle(Offset(sx + gap * 3.1, top + gap * 1.7), gap * 0.3, ink);
+  }
+
+  /// 矢量四分休止符，替换 Unicode '𝄽'（同样会缺字成 "?"）。
+  void _drawRest(Canvas canvas, double cx, double midY, double gap, Paint ink) {
+    final stroke = Paint()
+      ..color = ink.color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.2, gap * 0.7)
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final path = Path()
+      ..moveTo(cx - gap * 0.6, midY - gap * 1.6)
+      ..lineTo(cx + gap * 0.5, midY - gap * 0.4)
+      ..lineTo(cx - gap * 0.5, midY + gap * 0.6)
+      ..lineTo(cx + gap * 0.6, midY + gap * 1.8);
+    canvas.drawPath(path, stroke);
   }
 
   void _drawKeySignature(Canvas canvas, double x, double top, Paint paint) {
@@ -972,22 +1043,15 @@ class _PracticeScorePainter extends CustomPainter {
     Paint ink,
   ) {
     final width = right - left;
-    final noteCount = treble ? 22 : 11;
+    final noteCount = treble ? 14 : 8;
     for (var i = 0; i < noteCount; i += 1) {
-      final t = (i + 0.7) / (noteCount + 1);
+      final t = (i + 0.5) / noteCount;
       final x = left + width * t;
-      final step = ((i * 2 + seed + system + (treble ? 1 : 4)) % 7) - 1;
-      final y = top + gap * step.clamp(0, 6);
+      final step = (i * 2 + seed + system + (treble ? 1 : 4)) % 5;
+      final y = top + gap * step;
       final isRest = !treble && i % 4 == 1;
       if (isRest) {
-        _drawText(
-          canvas,
-          '𝄽',
-          Offset(x, top + gap * 2),
-          fontSize: 17,
-          color: ink.color,
-          anchor: _TextAnchor.center,
-        );
+        _drawRest(canvas, x, top + gap * 2, gap, ink);
         continue;
       }
 
@@ -995,14 +1059,15 @@ class _PracticeScorePainter extends CustomPainter {
         Rect.fromCenter(center: Offset(x, y), width: 9.0, height: 6.2),
         ink,
       );
-      final stemUp = treble || i.isEven;
-      final stemEnd = stemUp ? y - gap * 3.2 : y + gap * 3.2;
+      // 高音谱表符干一律朝上、低音谱表朝下，避免符干伸进相邻谱表造成重叠。
+      final stemUp = treble;
+      final stemEnd = stemUp ? y - gap * 2.8 : y + gap * 2.8;
       final stemX = stemUp ? x + 4 : x - 4;
       canvas.drawLine(Offset(stemX, y), Offset(stemX, stemEnd), ink);
       if (treble && i % 3 != 0) {
         canvas.drawLine(
           Offset(stemX, stemEnd),
-          Offset(stemX + 16, stemEnd + (i.isEven ? 2 : -2)),
+          Offset(stemX + 12, stemEnd + 2),
           ink,
         );
       }

@@ -48,6 +48,8 @@ void main() {
     expect(find.text('月光奏鸣曲 第一乐章'), findsOneWidget);
     expect(find.text('深夜爵士小品'), findsOneWidget);
 
+    await tester.tap(find.byKey(const Key('score-category-dropdown')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('score-category-爵士')));
     await tester.pumpAndSettle();
 

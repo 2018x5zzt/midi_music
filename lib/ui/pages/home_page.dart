@@ -232,14 +232,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _openPlayer() {
-    unawaited(
-      Navigator.of(
-        context,
-      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
-    );
-  }
-
   void _openSettings() {
     unawaited(
       Navigator.of(
@@ -290,13 +282,10 @@ class _HomePageState extends State<HomePage> {
                         child: _ScoreFeedHeader(
                           player: player,
                           onImport: _pickAndLoadMidi,
-                          onContinue: player.songData == null
-                              ? null
-                              : _openPlayer,
                         ),
                       ),
                       SliverToBoxAdapter(
-                        child: _CategoryStrip(
+                        child: _CategoryDropdown(
                           selectedCategory: _selectedCategory,
                           onSelected: (category) {
                             setState(() => _selectedCategory = category);
@@ -324,13 +313,8 @@ class _HomePageState extends State<HomePage> {
 class _ScoreFeedHeader extends StatelessWidget {
   final MidiPlayerController player;
   final VoidCallback onImport;
-  final VoidCallback? onContinue;
 
-  const _ScoreFeedHeader({
-    required this.player,
-    required this.onImport,
-    required this.onContinue,
-  });
+  const _ScoreFeedHeader({required this.player, required this.onImport});
 
   @override
   Widget build(BuildContext context) {
@@ -359,18 +343,16 @@ class _ScoreFeedHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 14),
-              _SoundfontBadge(player: player),
+              if (!player.isSoundfontReady) ...[
+                const SizedBox(width: 14),
+                _SoundfontBadge(player: player),
+              ],
             ],
           ),
           const SizedBox(height: 18),
           const _SearchField(),
           const SizedBox(height: 14),
-          _HeaderActions(
-            onImport: onImport,
-            onContinue: onContinue,
-            currentFileName: player.songData?.fileName,
-          ),
+          _HeaderActions(onImport: onImport),
           if (!player.isSoundfontReady) ...[
             const SizedBox(height: 12),
             _SoundfontStatusLine(player: player),
@@ -418,130 +400,99 @@ class _SearchField extends StatelessWidget {
 
 class _HeaderActions extends StatelessWidget {
   final VoidCallback onImport;
-  final VoidCallback? onContinue;
-  final String? currentFileName;
 
-  const _HeaderActions({
-    required this.onImport,
-    required this.onContinue,
-    required this.currentFileName,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 380;
-        final continueButton = onContinue == null
-            ? null
-            : _SecondaryActionButton(
-                label: currentFileName ?? '继续当前曲目',
-                icon: CupertinoIcons.play_arrow_solid,
-                onPressed: onContinue!,
-              );
-
-        if (isCompact || continueButton == null) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _PrimaryActionButton(
-                label: '导入 MIDI 乐谱',
-                icon: CupertinoIcons.arrow_down_doc_fill,
-                onPressed: onImport,
-              ),
-              if (continueButton != null) ...[
-                const SizedBox(height: 10),
-                continueButton,
-              ],
-            ],
-          );
-        }
-
-        return Row(
-          children: [
-            Expanded(
-              child: _PrimaryActionButton(
-                label: '导入 MIDI 乐谱',
-                icon: CupertinoIcons.arrow_down_doc_fill,
-                onPressed: onImport,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: continueButton),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _CategoryStrip extends StatelessWidget {
-  final String selectedCategory;
-  final ValueChanged<String> onSelected;
-
-  const _CategoryStrip({
-    required this.selectedCategory,
-    required this.onSelected,
-  });
+  const _HeaderActions({required this.onImport});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 42,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        physics: const BouncingScrollPhysics(),
-        scrollDirection: Axis.horizontal,
-        itemCount: _scoreCategories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final category = _scoreCategories[index];
-          return _CategoryPill(
-            label: category,
-            selected: category == selectedCategory,
-            onPressed: () => onSelected(category),
-          );
-        },
+      width: double.infinity,
+      child: _PrimaryActionButton(
+        label: '导入 MIDI 乐谱',
+        icon: CupertinoIcons.arrow_down_doc_fill,
+        onPressed: onImport,
       ),
     );
   }
 }
 
-class _CategoryPill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onPressed;
+class _CategoryDropdown extends StatelessWidget {
+  final String selectedCategory;
+  final ValueChanged<String> onSelected;
 
-  const _CategoryPill({
-    required this.label,
-    required this.selected,
-    required this.onPressed,
+  const _CategoryDropdown({
+    required this.selectedCategory,
+    required this.onSelected,
   });
+
+  Future<void> _showMenu(BuildContext context) async {
+    final selected = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: const Text('选择分类'),
+        actions: [
+          for (final category in _scoreCategories)
+            CupertinoActionSheetAction(
+              key: Key('score-category-$category'),
+              isDefaultAction: category == selectedCategory,
+              onPressed: () => Navigator.of(sheetContext).pop(category),
+              child: Text(category),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+    if (selected != null) {
+      onSelected(selected);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      key: Key('score-category-$label'),
-      decoration: BoxDecoration(
-        color: selected
-            ? LuxuryPalette.goldBright
-            : CupertinoColors.white.withValues(alpha: 0.045),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: selected ? LuxuryPalette.goldBright : LuxuryPalette.divider,
-        ),
-      ),
-      child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-        minimumSize: const Size(0, 0),
-        borderRadius: BorderRadius.circular(999),
-        onPressed: onPressed,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected ? CupertinoColors.black : LuxuryPalette.textPrimary,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: CupertinoColors.white.withValues(alpha: 0.045),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: LuxuryPalette.divider),
+          ),
+          child: CupertinoButton(
+            key: const Key('score-category-dropdown'),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            minimumSize: const Size(0, 0),
+            borderRadius: BorderRadius.circular(999),
+            onPressed: () => unawaited(_showMenu(context)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  CupertinoIcons.slider_horizontal_3,
+                  size: 15,
+                  color: LuxuryPalette.goldBright,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  selectedCategory,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: LuxuryPalette.textPrimary,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(
+                  CupertinoIcons.chevron_down,
+                  size: 13,
+                  color: LuxuryPalette.textSubtle,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1061,53 +1012,6 @@ class _PrimaryActionButton extends StatelessWidget {
                   color: CupertinoColors.black,
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SecondaryActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _SecondaryActionButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: CupertinoColors.white.withValues(alpha: 0.055),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: LuxuryPalette.divider),
-      ),
-      child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        borderRadius: BorderRadius.circular(18),
-        onPressed: onPressed,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 15, color: LuxuryPalette.textPrimary),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: LuxuryPalette.textPrimary,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
