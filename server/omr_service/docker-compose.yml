@@ -1,0 +1,20 @@
+services:
+  omr-service:
+    build:
+      context: .
+    image: midi-music-omr-service:local
+    ports:
+      - "${OMR_PORT:-8080}:8080"
+    environment:
+      AUDIVERIS_BIN: "${AUDIVERIS_BIN:-audiveris}"
+      OMR_WORK_DIR: "/data/omr"
+      OMR_JOB_TIMEOUT_SECONDS: "${OMR_JOB_TIMEOUT_SECONDS:-600}"
+      OMR_MAX_UPLOAD_MB: "${OMR_MAX_UPLOAD_MB:-30}"
+      OMR_JOB_TTL_SECONDS: "${OMR_JOB_TTL_SECONDS:-86400}"
+      OMR_CLEANUP_INTERVAL_SECONDS: "${OMR_CLEANUP_INTERVAL_SECONDS:-1800}"
+    volumes:
+      - omr-data:/data/omr
+    restart: unless-stopped
+
+volumes:
+  omr-data:

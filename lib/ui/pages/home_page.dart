@@ -5,7 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/midi/midi_parser.dart';
+import '../../core/import/score_import_service.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/settings/app_settings.dart';
 import '../theme/luxury_theme.dart';
@@ -164,13 +164,14 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final MidiFileParser _parser = MidiFileParser();
+  final ScoreImportService _scoreImportService = ScoreImportService();
   var _isLoading = false;
   var _selectedCategory = _allCategory;
 
-  Future<void> _pickAndLoadMidi() async {
+  Future<void> _pickAndLoadScore() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
+      type: FileType.custom,
+      allowedExtensions: const ['mid', 'midi', 'musicxml', 'xml', 'pdf'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -182,7 +183,7 @@ class _HomePageState extends State<HomePage> {
     setState(() => _isLoading = true);
 
     try {
-      final songData = await _parser.parseFile(filePath);
+      final songData = await _scoreImportService.importFile(filePath);
       if (!mounted) return;
 
       final player = context.read<MidiPlayerController>();
@@ -281,7 +282,7 @@ class _HomePageState extends State<HomePage> {
                       SliverToBoxAdapter(
                         child: _ScoreFeedHeader(
                           player: player,
-                          onImport: _pickAndLoadMidi,
+                          onImport: _pickAndLoadScore,
                         ),
                       ),
                       SliverToBoxAdapter(
@@ -333,7 +334,7 @@ class _ScoreFeedHeader extends StatelessWidget {
                     Text('乐谱广场', style: luxuryDisplayStyle(context, size: 36)),
                     const SizedBox(height: 8),
                     const Text(
-                      '浏览谱面灵感，导入 MIDI 后进入排练。',
+                      '浏览谱面灵感，导入 MIDI 或 MusicXML 后进入排练。',
                       style: TextStyle(
                         fontSize: 14,
                         height: 1.45,
@@ -408,7 +409,7 @@ class _HeaderActions extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       child: _PrimaryActionButton(
-        label: '导入 MIDI 乐谱',
+        label: '导入乐谱文件',
         icon: CupertinoIcons.arrow_down_doc_fill,
         onPressed: onImport,
       ),

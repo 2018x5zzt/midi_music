@@ -88,7 +88,7 @@ class _EmptyStage extends StatelessWidget {
               const SectionEyebrow(label: 'NO SCORE LOADED'),
               const SizedBox(height: 18),
               Text(
-                '先导入 MIDI 乐谱。',
+                '先导入 MIDI 或 MusicXML 乐谱。',
                 style: luxuryDisplayStyle(context, size: 30),
               ),
               const SizedBox(height: 10),

@@ -116,6 +116,18 @@ flutter test
 - `tempo_map.dart` — tick ↔ 秒互转，支持多 tempo 变化点，二分查找，批量顺序应用优化
 - `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
 
+### Score Import (`lib/core/import/`)
+- `score_import_service.dart` — 乐谱导入分流服务。支持 MIDI、MusicXML 和 PDF；PDF 通过 `PdfToMusicXmlConverter` 先转 MusicXML，再进入统一播放数据模型
+- `musicxml_parser.dart` — 轻量 MusicXML → `MidiSongData` 转换器。覆盖 MVP 所需的 partwise MusicXML：音高、休止、和弦、divisions、拍号和 tempo；钢琴二重奏按多个 part 转为多个轨道
+- `pdf_omr_client.dart` — HTTP OMR 客户端。通过 `OMR_SERVICE_BASE_URL` 配置服务端地址，创建 `/v1/omr/jobs` 任务并轮询 MusicXML 结果
+- `pdf_to_musicxml_converter.dart` — PDF 到 MusicXML 转换抽象，隔离本地测试 Fake 和服务端 OMR 实现
+
+### OMR Server (`server/omr_service/`)
+- FastAPI 最小服务端骨架，接口遵循 `docs/omr_service_contract.md`
+- 接收 PDF 后后台调用 Audiveris：`audiveris -batch -transcribe -export -output ...`
+- 服务端不把 PDF 识谱逻辑放进 Flutter App；App 端只上传 PDF、轮询任务、消费 MusicXML
+- Dockerfile 仅包含 Python API 服务，部署时仍需安装或挂载 Audiveris 运行时
+
 ### Tempo Follow (`lib/core/follow/`)
 - `pitch_input.dart` — `PitchInput` 抽象接口（`pitchStream`、`start()`、`dispose()`）
 - `microphone_input.dart` — `MicrophoneInput` 实现 `PitchInput`。`flutter_audio_capture` → `pitch_detector_dart`（YIN 算法）→ 输出 `Stream<PitchData>`。流控（处理中跳过新帧）、RMS 音量计算
@@ -125,7 +137,7 @@ flutter test
 - `follow_playback_target.dart` — `FollowPlaybackTarget` 抽象 + `MidiFollowPlaybackTarget` 实现，适配 `MidiPlayerController`
 
 ### UI Layer (`lib/ui/`)
-- `pages/home_page.dart` — 首页，文件选择器（`file_picker`），加载 MIDI 并跳转播放页，SoundFont 状态展示
+- `pages/home_page.dart` — 首页，文件选择器（`file_picker`），通过 `ScoreImportService` 加载 MIDI/MusicXML/PDF 并跳转播放页，SoundFont 状态展示
 - `pages/player_page.dart` — 播放器页面（~260 行，已拆分）。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），组件委托给 `widgets/` 下的子文件；用户 seek 后会同步跟随会话的播放时间重对齐
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
 - `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote；回退/快进/归零支持外部 `onSeek` 回调
@@ -135,11 +147,12 @@ flutter test
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，共 79 用例)
+### Tests (`test/`，共 83 用例)
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
 - `midi_parse_test.dart` — 解析真实 MIDI 文件测试（1 用例）
+- `musicxml_import_test.dart` — MusicXML/PDF 导入测试（4 用例，含服务端 OMR 任务协议 Fake 和钢琴二重奏多轨道）
 - `midi_regression_test.dart` — **MIDI 解析回归测试**（22 用例）：16 个合成 MIDI（Format 0/1、重叠音符、tempo/拍号、PPQ、边界）+ 6 个真实古典 MIDI（巴赫/莫扎特/肖邦/贝多芬，来自 BitMidi）
 - `follow_mode_controller_test.dart` — 跟随算法测试（10 用例，含 seek/currentTime 重对齐、idle 恢复、seek 到长休止等待和连续未匹配重对齐请求）
 - `follow_mode_session_test.dart` — 跟随会话生命周期测试（9 用例，含长休止暂停恢复、按播放时间重对齐、seek 到长休止暂停等待、连续未匹配自动重对齐、dispose 回调清理）
