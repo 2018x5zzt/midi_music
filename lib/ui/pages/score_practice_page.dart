@@ -892,8 +892,26 @@ class _PracticeScorePainter extends CustomPainter {
         );
       }
 
-      _drawNotes(canvas, contentLeft, right, trebleTop, lineGap, system, true, ink);
-      _drawNotes(canvas, contentLeft, right, bassTop, lineGap, system, false, ink);
+      _drawNotes(
+        canvas,
+        contentLeft,
+        right,
+        trebleTop,
+        lineGap,
+        system,
+        true,
+        ink,
+      );
+      _drawNotes(
+        canvas,
+        contentLeft,
+        right,
+        bassTop,
+        lineGap,
+        system,
+        false,
+        ink,
+      );
 
       _drawMeasureNumber(canvas, system, left * 0.72, trebleTop);
     }
@@ -942,7 +960,13 @@ class _PracticeScorePainter extends CustomPainter {
   }
 
   /// 矢量高音谱号（G 谱号）。用绘制代替 Unicode 字形，避免 iOS 缺字显示成 "?"。
-  void _drawTrebleClef(Canvas canvas, double x, double top, double gap, Paint ink) {
+  void _drawTrebleClef(
+    Canvas canvas,
+    double x,
+    double top,
+    double gap,
+    Paint ink,
+  ) {
     final stroke = Paint()
       ..color = ink.color
       ..style = PaintingStyle.stroke
@@ -952,20 +976,54 @@ class _PracticeScorePainter extends CustomPainter {
     final cx = x + gap * 1.4;
     final path = Path()
       ..moveTo(cx + gap * 0.8, top - gap * 0.4)
-      ..cubicTo(cx - gap * 1.3, top - gap * 0.2, cx - gap * 1.2,
-          top + gap * 2.4, cx + gap * 0.3, top + gap * 2.7)
-      ..cubicTo(cx + gap * 1.7, top + gap * 3.0, cx + gap * 1.4,
-          top + gap * 0.7, cx - gap * 0.2, top + gap * 1.0)
-      ..cubicTo(cx - gap * 1.0, top + gap * 1.2, cx - gap * 0.3,
-          top + gap * 3.6, cx + gap * 0.4, top + gap * 4.2)
-      ..cubicTo(cx + gap * 1.0, top + gap * 4.7, cx + gap * 0.5,
-          top + gap * 5.4, cx - gap * 0.2, top + gap * 5.1);
+      ..cubicTo(
+        cx - gap * 1.3,
+        top - gap * 0.2,
+        cx - gap * 1.2,
+        top + gap * 2.4,
+        cx + gap * 0.3,
+        top + gap * 2.7,
+      )
+      ..cubicTo(
+        cx + gap * 1.7,
+        top + gap * 3.0,
+        cx + gap * 1.4,
+        top + gap * 0.7,
+        cx - gap * 0.2,
+        top + gap * 1.0,
+      )
+      ..cubicTo(
+        cx - gap * 1.0,
+        top + gap * 1.2,
+        cx - gap * 0.3,
+        top + gap * 3.6,
+        cx + gap * 0.4,
+        top + gap * 4.2,
+      )
+      ..cubicTo(
+        cx + gap * 1.0,
+        top + gap * 4.7,
+        cx + gap * 0.5,
+        top + gap * 5.4,
+        cx - gap * 0.2,
+        top + gap * 5.1,
+      );
     canvas.drawPath(path, stroke);
-    canvas.drawCircle(Offset(cx + gap * 0.15, top + gap * 1.85), gap * 0.55, ink);
+    canvas.drawCircle(
+      Offset(cx + gap * 0.15, top + gap * 1.85),
+      gap * 0.55,
+      ink,
+    );
   }
 
   /// 矢量低音谱号（F 谱号）：弯钩 + 两个点。
-  void _drawBassClef(Canvas canvas, double x, double top, double gap, Paint ink) {
+  void _drawBassClef(
+    Canvas canvas,
+    double x,
+    double top,
+    double gap,
+    Paint ink,
+  ) {
     final stroke = Paint()
       ..color = ink.color
       ..style = PaintingStyle.stroke
@@ -974,10 +1032,22 @@ class _PracticeScorePainter extends CustomPainter {
     final sx = x + gap * 0.6;
     final path = Path()
       ..moveTo(sx, top + gap * 0.7)
-      ..cubicTo(sx + gap * 2.4, top - gap * 0.2, sx + gap * 2.8,
-          top + gap * 2.4, sx + gap * 0.9, top + gap * 3.1)
-      ..cubicTo(sx + gap * 0.2, top + gap * 3.4, sx - gap * 0.3,
-          top + gap * 3.0, sx - gap * 0.1, top + gap * 2.5);
+      ..cubicTo(
+        sx + gap * 2.4,
+        top - gap * 0.2,
+        sx + gap * 2.8,
+        top + gap * 2.4,
+        sx + gap * 0.9,
+        top + gap * 3.1,
+      )
+      ..cubicTo(
+        sx + gap * 0.2,
+        top + gap * 3.4,
+        sx - gap * 0.3,
+        top + gap * 3.0,
+        sx - gap * 0.1,
+        top + gap * 2.5,
+      );
     canvas.drawPath(path, stroke);
     canvas.drawCircle(Offset(sx + gap * 0.4, top + gap * 0.7), gap * 0.5, ink);
     canvas.drawCircle(Offset(sx + gap * 3.1, top + gap * 0.7), gap * 0.3, ink);

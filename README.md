@@ -4,7 +4,8 @@
 
 ## ✨ 核心功能
 
-- **MIDI 文件播放** — 解析标准 MIDI 文件（Format 0/1），支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
+- **乐谱文件导入** — 解析标准 MIDI 文件（Format 0/1）和基础 MusicXML；PDF 导入预留 OMR 识谱接口，识别后统一转换为播放数据
+- **MIDI 文件播放** — 支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
 - **轨道控制** — 按轨道（而非通道）独立控制音量、静音，即使多轨道共享同一 MIDI 通道也互不干扰
 - **变速跟随模式** — 通过麦克风检测演奏者弹奏节奏（onset detection），实时调整伴奏播放速度
@@ -18,6 +19,7 @@
 | Cupertino Widgets | iOS 风格 UI |
 | flutter_midi_pro | MIDI 引擎（FluidSynth/AVFoundation） |
 | dart_midi_pro | MIDI 文件解析 |
+| MusicXML 轻量解析器 | 将 OMR 或外部工具生成的 MusicXML 转为播放数据 |
 | flutter_audio_capture | 麦克风音频输入 |
 | pitch_detector_dart | YIN 音高检测 |
 | permission_handler | 权限管理 |
@@ -35,6 +37,9 @@ lib/
 │   │   ├── midi_parser.dart           # MIDI 文件解析
 │   │   ├── midi_player.dart           # 播放控制器
 │   │   └── tempo_map.dart             # 速度映射
+│   ├── import/
+│   │   ├── musicxml_parser.dart       # MusicXML 转播放时间线
+│   │   └── score_import_service.dart  # MIDI/MusicXML/PDF 导入分流
 │   └── follow/
 │       ├── pitch_input.dart           # 音高输入抽象
 │       ├── microphone_input.dart      # 麦克风音频输入
@@ -103,7 +108,16 @@ flutter test
 
 ### 准备资源文件
 
-App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录，App 同时支持从设备文件系统选择 MIDI 文件。
+App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF；其中 PDF 需要接入 OMR 服务先生成 MusicXML。
+
+PDF 识谱服务通过 Dart define 配置：
+
+```bash
+flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
+```
+
+接口约定见 [`docs/omr_service_contract.md`](docs/omr_service_contract.md)，
+最小服务端骨架见 [`server/omr_service`](server/omr_service)。
 
 ### 打包 APK
 

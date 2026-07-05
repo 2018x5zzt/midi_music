@@ -23,7 +23,7 @@ void main() {
       ),
     );
 
-    expect(find.text('导入 MIDI 乐谱'), findsOneWidget);
+    expect(find.text('导入乐谱文件'), findsOneWidget);
     expect(find.text('乐谱广场'), findsWidgets);
     expect(find.byKey(const Key('score-masonry-grid')), findsOneWidget);
   });
